@@ -90,6 +90,15 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
 .step .t{font-size:.92rem;line-height:1.45;color:var(--ink-2);min-width:0}
 .step .m{font-size:1.2rem;overflow-x:auto;overflow-y:hidden;min-width:0;padding:2px 0}
 .steps-note{font-size:.9rem;color:var(--ink-2);margin:0}
+.chem-rows{display:grid;gap:0;margin:2px 0 0;font-size:.92rem}
+.chem-rows .r{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1.6fr) auto;gap:4px 12px;padding:7px 0;border-top:1px solid var(--rule);align-items:baseline}
+.chem-rows .r:first-child{border-top:0}
+.chem-rows .k2{color:var(--ink-2)}
+.chem-rows .v{min-width:0;overflow-x:auto;overflow-y:hidden;font-variant-numeric:tabular-nums}
+.chem-rows .p{color:var(--ink-2);font-size:.85rem}
+.sub{margin-bottom:2px}
+.sub-panel{display:flex;flex-direction:column;gap:10px}
+.row3{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .hint{font-size:.8rem;color:var(--ink-2);margin:0}
 /* keypad */
 .pad{flex:none;background:var(--well);border:1px solid var(--rule);border-radius:14px;padding:6px 6px calc(12px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:8px}
@@ -128,11 +137,12 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
 
 <div class="app">
   <div class="top">
-    <div class="slider" id="slider" role="tablist" aria-label="Mode">
+    <div class="slider" id="slider" role="tablist" aria-label="Mode" style="--n:4">
       <div class="thumb" id="thumb"></div>
       <button role="tab" id="t-compute" aria-selected="true" aria-controls="p-compute" type="button">Compute</button>
       <button role="tab" id="t-check" aria-selected="false" aria-controls="p-check" type="button">Check</button>
       <button role="tab" id="t-calc" aria-selected="false" aria-controls="p-calc" type="button">Calculus</button>
+      <button role="tab" id="t-sci" aria-selected="false" aria-controls="p-sci" type="button">Science</button>
     </div>
     <button class="angle" id="angle" type="button" aria-label="Angle unit, tap to switch">DEG</button>
   </div>
@@ -178,17 +188,57 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
     <div class="result" id="r-k" hidden></div>
     <p class="hint" id="k-hint"></p>
   </section>
+  <section class="panel" id="p-sci" role="tabpanel" hidden>
+    <div class="slider small sub" id="sci-slider" role="tablist" aria-label="Chemistry tool" style="--n:5"><div class="thumb" id="sci-thumb"></div>
+      <button role="tab" type="button" aria-selected="true">Mass</button><button role="tab" type="button" aria-selected="false">Moles</button>
+      <button role="tab" type="button" aria-selected="false">Balance</button><button role="tab" type="button" aria-selected="false">Element</button>
+      <button role="tab" type="button" aria-selected="false">pH</button></div>
+    <div class="sub-panel" id="sp-mass">
+      <label class="field"><span>Formula</span><input class="mi" id="s-mass" value="Ca(OH)2" autocapitalize="off" autocomplete="off" spellcheck="false" data-ce="pv-s-mass"></label>
+      <div class="preview empty" id="pv-s-mass">Preview appears here</div>
+      <button class="go" data-chem="mass" disabled type="button">Molar mass</button>
+    </div>
+    <div class="sub-panel" id="sp-mole" hidden>
+      <label class="field"><span>Formula</span><input class="mi" id="s-mole-f" value="H2O" autocapitalize="off" autocomplete="off" spellcheck="false" data-ce="pv-s-mole"></label>
+      <div class="preview empty" id="pv-s-mole">Preview appears here</div>
+      <div class="row3">
+        <label class="field"><span>Amount</span><input class="mi" id="s-mole-v" value="36.04" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+        <label class="field"><span>Unit</span><select id="s-mole-u"><option value="g">g</option><option value="mol">mol</option><option value="particles">particles</option><option value="dm3">dm³ gas (STP)</option></select></label>
+      </div>
+      <button class="go" data-chem="mole" disabled type="button">Convert</button>
+    </div>
+    <div class="sub-panel" id="sp-bal" hidden>
+      <label class="field"><span>Equation</span><input class="mi" id="s-bal" value="Fe + O2 -> Fe2O3" autocapitalize="off" autocomplete="off" spellcheck="false" data-ce="pv-s-bal"></label>
+      <div class="preview empty" id="pv-s-bal">Preview appears here</div>
+      <button class="go" data-chem="balance" disabled type="button">Balance</button>
+    </div>
+    <div class="sub-panel" id="sp-el" hidden>
+      <label class="field"><span>Element</span><input class="mi" id="s-el" value="Fe" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+      <button class="go" data-chem="element" disabled type="button">Look up</button>
+      <p class="hint">Type a symbol (Fe), a name (iron) or an atomic number (26).</p>
+    </div>
+    <div class="sub-panel" id="sp-ph" hidden>
+      <div class="row3">
+        <label class="field"><span>Value</span><input class="mi" id="s-ph-v" value="3" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+        <label class="field"><span>Is a</span><select id="s-ph-k"><option value="pH">pH</option><option value="pOH">pOH</option><option value="H">[H⁺] mol dm⁻³</option><option value="OH">[OH⁻] mol dm⁻³</option></select></label>
+      </div>
+      <button class="go" data-chem="ph" disabled type="button">Convert</button>
+    </div>
+    <label class="field" id="sf-wrap"><span>Significant figures</span><select id="s-sf"><option>2</option><option selected>3</option><option>4</option><option>5</option></select></label>
+    <div class="result" id="r-s" hidden></div>
+  </section>
   </div>
 
 <button class="keys-pill" id="keys-pill" type="button" hidden>Keys</button>
 <div class="pad" id="pad" hidden>
-  <div class="pad-head"><div class="slider small" id="pad-slider" role="tablist" aria-label="Key sets" style="--n:4"><div class="thumb" id="pad-thumb"></div></div>
+  <div class="pad-head"><div class="slider small" id="pad-slider" role="tablist" aria-label="Key sets" style="--n:5"><div class="thumb" id="pad-thumb"></div></div>
     <button class="hide-keys" id="hide-keys" type="button" aria-label="Hide keypad">&#x25BE;</button></div>
   <div class="sets" id="sets"></div>
 </div>
 </div>
 
 <script src="vendor/katex.min.js"></script>
+<script src="vendor/mhchem.min.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 let ready = false, mode = "exact", angle = "deg", active = null;
@@ -213,10 +263,13 @@ function makeSlider(root, thumb, n, onSelect){
   window.addEventListener("resize", () => place(idx * segW()));
   return {select, relayout: () => place(idx * segW())};
 }
-const tabs = ["compute","check","calc"];
-const modeSlider = makeSlider($("slider"), $("thumb"), 3, i => {
+const tabs = ["compute","check","calc","sci"];
+let padSliderCtl = null;
+const modeSlider = makeSlider($("slider"), $("thumb"), 4, i => {
   tabs.forEach((t,j) => $("p-"+t).hidden = j!==i);
-  setActive($("p-" + tabs[i]).querySelector(".mi:not(:disabled)")); });
+  if (padSliderCtl) padSliderCtl.select(i === 3 ? 4 : 0);
+  if (i === 3) requestAnimationFrame(() => sciSlider.relayout());
+  setActive($("p-" + tabs[i]).querySelector(".mi:not(:disabled):not([hidden])")); });
 modeSlider.select(0); requestAnimationFrame(() => modeSlider.select(0));
 
 /* ---------- typeset helpers ---------- */
@@ -240,29 +293,39 @@ async function toggleSteps(id){
   if (!stepsData[id]){ try { stepsData[id] = JSON.parse(await call("run" === "x" ? "run" : "steps", lastRun[id].args, 20000)); } catch(e){ stepsData[id] = {ok:false, note: e.cancelled ? e.message : "Steps are not available for this one yet."}; } }
   renderResult(id);
 }
+function chemRows(rows){
+  const dl = document.createElement("div"); dl.className = "chem-rows";
+  rows.forEach(r => { const row = document.createElement("div"); row.className = "r";
+    const k = document.createElement("div"); k.className = "k2"; k.textContent = r[0];
+    const v = document.createElement("div"); v.className = "v"; if (/[\\^_{]|\\\\/.test(r[1])) typeset(v, r[1], false); else v.textContent = r[1];
+    row.append(k, v); if (r[2]) { const p = document.createElement("div"); p.className = "p"; p.textContent = r[2]; row.append(p); } dl.append(row); });
+  return dl;
+}
 function renderResult(id){
   const d = lastRun[id]; if (!d) return; const box = $(id); box.className = "result " + (d.kind||""); box.hidden = false; box.textContent = "";
   if (d.badge){ const b = document.createElement("div"); b.className = "badge"; b.textContent = d.badge; box.append(b); }
   if (d.note){ const n = document.createElement("p"); n.className = "note"; n.textContent = d.note; box.append(n); }
-  const m = document.createElement("div"); m.className = "math"; typeset(m, mode==="exact" ? d.exact : d.dec, true); box.append(m);
+  const m = document.createElement("div"); m.className = "math"; if (d.chem) m.style.fontSize = "1.2rem"; typeset(m, mode==="exact" || d.chem ? d.exact : d.dec, true); box.append(m);
+  if (d.rows && d.rows.length) box.append(chemRows(d.rows));
   const bar = document.createElement("div"); bar.className = "rbar";
   const seg = document.createElement("div"); seg.className = "seg"; seg.setAttribute("role","group"); seg.setAttribute("aria-label","Result form");
-  [["exact","Fraction"],["dec","Decimal"]].forEach(([v,l]) => { const b = document.createElement("button"); b.type="button"; b.textContent=l;
+  if (!d.chem) [["exact","Fraction"],["dec","Decimal"]].forEach(([v,l]) => { const b = document.createElement("button"); b.type="button"; b.textContent=l;
     b.setAttribute("aria-pressed", mode===v); b.addEventListener("click", () => { mode = v; Object.keys(lastRun).forEach(renderResult); }); seg.append(b); });
   const c = document.createElement("button"); c.type="button"; c.className="copy"; c.textContent="Copy";
   c.addEventListener("click", async () => { try { await navigator.clipboard.writeText(d.text); c.textContent="Copied"; } catch(e){ c.textContent="Select text"; } setTimeout(()=>c.textContent="Copy",1500); });
-  if (d.args && STEP_OPS.has(d.args[0]) && d.kind !== "bad"){ const sb = document.createElement("button"); sb.type = "button"; sb.className = "copy"; sb.textContent = stepsOpen[id] ? "Hide steps" : "Show steps"; sb.addEventListener("click", () => toggleSteps(id)); bar.append(seg, sb, c); }
+  if (d.chem){ bar.append(c); }
+  else if (d.args && STEP_OPS.has(d.args[0]) && d.kind !== "bad"){ const sb = document.createElement("button"); sb.type = "button"; sb.className = "copy"; sb.textContent = stepsOpen[id] ? "Hide steps" : "Show steps"; sb.addEventListener("click", () => toggleSteps(id)); bar.append(seg, sb, c); }
   else bar.append(seg, c);
   box.append(bar);
   if (stepsOpen[id] && stepsData[id]) box.append(renderSteps(stepsData[id]));
 }
-async function go(id, args){
+async function go(id, args, fn = "run"){
   if (inflight) return; inflight++;
   const box = $(id); box.hidden = false; box.className = "result"; box.textContent = "";
   const w = document.createElement("div"); w.className = "working"; w.append("Working…");
   const c = document.createElement("button"); c.type = "button"; c.className = "copy"; c.textContent = "Cancel"; c.addEventListener("click", cancelRun); w.append(c); box.append(w);
   stepsOpen[id] = false; delete stepsData[id];
-  try { lastRun[id] = JSON.parse(await call("run", args, 20000)); lastRun[id].args = args; }
+  try { lastRun[id] = JSON.parse(await call(fn, args, 20000)); lastRun[id].args = args; }
   catch(e){ lastRun[id] = {kind:"warn", badge: e.cancelled ? "Stopped" : "Could not compute", note: e.cancelled ? e.message : String(e.message || e),
     exact:"\\text{—}", dec:"\\text{—}", text:""}; }
   inflight = 0; renderResult(id); box.scrollIntoView({block:"nearest", behavior:"smooth"});
@@ -271,6 +334,11 @@ async function go(id, args){
 /* ---------- live preview ---------- */
 const timers = {};
 function updatePreview(inp){
+  if (inp.dataset.ce){ const pv = $(inp.dataset.ce), v = inp.value.trim();
+    if (!v){ pv.className = "preview empty"; pv.textContent = "Preview appears here"; return; }
+    try { katex.renderToString("\\ce{" + v.replace(/→/g, "->") + "}", {throwOnError:true}); pv.className = "preview"; typeset(pv, "\\ce{" + v.replace(/→/g, "->") + "}", false); }
+    catch(e){ pv.className = "preview empty"; pv.textContent = v; }
+    return; }
   const pv = $(inp.dataset.prev); if (!pv) return; clearTimeout(timers[inp.id]);
   timers[inp.id] = setTimeout(() => {
     const v = inp.value.trim();
@@ -311,7 +379,9 @@ const SETS = {
               ["π","pi","fn"],["e","e","fn"],["=",  "=","fn"],[",",",","fn"],["C","","fn","clear"]],
   "Calculus": [["sin","sin()","fn","",1],["cos","cos()","fn","",1],["tan","tan()","fn","",1],["ln","ln()","fn","",1],["eˣ","exp()","fn","",1],
                ["asin","asin()","fn","",1],["acos","acos()","fn","",1],["atan","atan()","fn","",1],["log","log()","fn","",1],["∞","oo","fn"],["°","°","fn"],["π","pi","fn"]],
-  "%": [["%","%","fn"],["% of","%*","fn"],["÷100","/100","fn"],["×100","*100","fn"],["1/x","1/()","fn","",1]]
+  "%": [["%","%","fn"],["% of","%*","fn"],["÷100","/100","fn"],["×100","*100","fn"],["1/x","1/()","fn","",1]],
+  "Chem": [["H","H","fn"],["C","C","fn"],["N","N","fn"],["O","O","fn"],["S","S","fn"],["Cl","Cl","fn"],["Na","Na","fn"],["K","K","fn"],["Ca","Ca","fn"],["Mg","Mg","fn"],
+           ["Fe","Fe","fn"],["Cu","Cu","fn"],["Al","Al","fn"],["Zn","Zn","fn"],["Br","Br","fn"],["(","(","fn"],[")",")","fn"],[".",".","fn"],["→"," -> ","fn"],["+"," + ","fn"]]
 };
 const sets = $("sets"), padSlider = $("pad-slider"); let setEls = {};
 Object.keys(SETS).forEach((name, i) => {
@@ -325,7 +395,7 @@ Object.keys(SETS).forEach((name, i) => {
   sets.append(g); setEls[name] = {tb, g};
 });
 const setNames = Object.keys(SETS);
-const padSliderCtl = makeSlider(padSlider, $("pad-thumb"), setNames.length, i => showSet(setNames[i]));
+padSliderCtl = makeSlider(padSlider, $("pad-thumb"), setNames.length, i => showSet(setNames[i]));
 function showSet(name){ Object.entries(setEls).forEach(([n,o]) => { o.tb.setAttribute("aria-selected", n===name); o.g.classList.toggle("off", n!==name); }); }
 function press([label, text, , action, back]){
   const inp = active; if (!inp || inp.disabled || !inp.offsetParent) return;
@@ -387,6 +457,15 @@ $("c-go").addEventListener("click", () => go("r-c", ["check", $("c-prob").value,
 $("k-go").addEventListener("click", () => go("r-k", [$("k-op").value, $("k-expr").value, $("k-var").value, $("k-extra").value, angle]));
 $("angle").addEventListener("click", () => { angle = angle === "deg" ? "rad" : "deg"; $("angle").textContent = angle.toUpperCase();
   document.querySelectorAll(".result").forEach(r => r.classList.add("stale")); });
+const sciSlider = makeSlider($("sci-slider"), $("sci-thumb"), 5, i => {
+  ["mass","mole","bal","el","ph"].forEach((n, j) => $("sp-" + n).hidden = j !== i);
+  $("sf-wrap").hidden = !(i === 1 || i === 4); $("r-s").hidden = true; setActive($("sp-" + ["mass","mole","bal","el","ph"][i]).querySelector(".mi")); });
+$("sf-wrap").hidden = true;
+document.querySelectorAll(".mi[data-ce]").forEach(updatePreview);
+const chemArgs = {
+  mass: () => ["mass", $("s-mass").value], mole: () => ["mole", $("s-mole-f").value, $("s-mole-v").value, $("s-mole-u").value, $("s-sf").value],
+  balance: () => ["balance", $("s-bal").value], element: () => ["element", $("s-el").value], ph: () => ["ph", $("s-ph-v").value, $("s-ph-k").value, "", $("s-sf").value]};
+document.querySelectorAll("[data-chem]").forEach(b => b.addEventListener("click", () => go("r-s", chemArgs[b.dataset.chem](), "chem")));
 startWorker();
 </script>
 <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});</script></body></html>

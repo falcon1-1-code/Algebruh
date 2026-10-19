@@ -1,0 +1,182 @@
+# Chemistry tools for Algebruh. Loaded after chem_data.txt (ELEMENTS) and engine.txt (json is imported there).
+import re
+from math import log10, floor
+
+BY_SYM = {e[0]: e for e in ELEMENTS}
+IB_MASS = {"S": 32.07}   # the data booklet differs from the 2013 IUPAC value for sulfur
+def AM(sym):
+    if sym in IB_MASS: return IB_MASS[sym]
+    return int(BY_SYM[sym][3] * 100 + 0.5 + 1e-4) / 100   # IB method: atomic masses to 2 decimals, then add up
+BY_Z = {e[1]: e for e in ELEMENTS}
+BY_NAME = {e[2].lower(): e for e in ELEMENTS}
+AVOGADRO = 6.022e23         # IB data booklet: 6.02 x 10^23 mol-1
+MOLAR_VOLUME = 22.7         # dm3 mol-1 at STP (IB data booklet)
+KW = 1.0e-14                # at 298 K
+# Pauling electronegativity (IB data booklet values for the common elements)
+EN = {"H": 2.20, "Li": 0.98, "Be": 1.57, "B": 2.04, "C": 2.55, "N": 3.04, "O": 3.44, "F": 3.98, "Na": 0.93, "Mg": 1.31, "Al": 1.61,
+      "Si": 1.90, "P": 2.19, "S": 2.58, "Cl": 3.16, "K": 0.82, "Ca": 1.00, "Sc": 1.36, "Ti": 1.54, "V": 1.63, "Cr": 1.66, "Mn": 1.55,
+      "Fe": 1.83, "Co": 1.88, "Ni": 1.91, "Cu": 1.90, "Zn": 1.65, "Ga": 1.81, "Ge": 2.01, "As": 2.18, "Se": 2.55, "Br": 2.96, "Kr": 3.00,
+      "Rb": 0.82, "Sr": 0.95, "Ag": 1.93, "Sn": 1.96, "I": 2.66, "Xe": 2.60, "Cs": 0.79, "Ba": 0.89, "Au": 2.54, "Hg": 2.00, "Pb": 2.33}
+
+def _fmt(x, sf=3):
+    """Number as LaTeX with sf significant figures."""
+    if x == 0: return "0"
+    s = "%.*e" % (sf - 1, x); m, e = s.split("e"); e = int(e)
+    if -3 <= e <= 5:
+        d = max(sf - 1 - e, 0); return ("%." + str(d) + "f") % x
+    return m + r" \times 10^{" + str(e) + "}"
+
+def _plain(x, sf=3): return _fmt(x, sf).replace(r" \times 10^{", "e").replace("}", "")
+
+# ---- formulas
+def parse_formula(s):
+    s = s.strip().replace("·", ".").replace("*", ".").replace(" ", "")
+    s = re.sub(r"\^?\d*[+-]$", "", s)                      # drop a trailing ion charge such as ^2- or 2+
+    total = {}
+    for part in s.split("."):
+        m = re.match(r"^(\d+)(.*)$", part)
+        mult, body = (int(m.group(1)), m.group(2)) if m else (1, part)
+        for el, n in _count(body).items(): total[el] = total.get(el, 0) + n * mult
+    if not total: raise ValueError("Type a chemical formula, like Ca(OH)2")
+    return total
+
+def _count(body):
+    stack = [{}]; i = 0
+    while i < len(body):
+        c = body[i]
+        if c in "([":
+            stack.append({}); i += 1
+        elif c in ")]":
+            j = i + 1
+            while j < len(body) and body[j].isdigit(): j += 1
+            mult = int(body[i + 1:j] or 1); top = stack.pop()
+            if not stack: raise ValueError("Unmatched bracket")
+            for k, v in top.items(): stack[-1][k] = stack[-1].get(k, 0) + v * mult
+            i = j
+        else:
+            m = re.match(r"[A-Z][a-z]?", body[i:])
+            if not m: raise ValueError("Cannot read “" + body[i:i + 3] + "” as an element")
+            el = m.group(0)
+            if el not in BY_SYM: raise ValueError(el + " is not an element symbol")
+            j = i + len(el)
+            while j < len(body) and body[j].isdigit(): j += 1
+            stack[-1][el] = stack[-1].get(el, 0) + int(body[i + len(el):j] or 1); i = j
+    if len(stack) != 1: raise ValueError("Unmatched bracket")
+    return stack[0]
+
+def molar_mass(counts): return sum(AM(e) * n for e, n in counts.items())
+
+def _ce(formula): return r"\ce{" + formula.strip() + "}"
+
+def _res(kind, badge, main, rows=None, note="", text=""):
+    return json.dumps({"kind": kind, "badge": badge, "note": note, "exact": main, "dec": main, "text": text or main, "rows": rows or [], "chem": True})
+
+# ---- molar mass
+def op_mass(a):
+    c = parse_formula(a); M = molar_mass(c)
+    rows = [[e + " × " + str(n), "%.2f × %d = %.2f" % (AM(e), n, AM(e) * n), "%.1f %%" % (100 * AM(e) * n / M)] for e, n in c.items()]
+    return _res("", "Molar mass", _ce(a) + r" = %.2f\ \mathrm{g\,mol^{-1}}" % M, rows, "Atomic masses to 2 decimal places, as in the IB data booklet.", "%.2f g/mol" % M)
+
+# ---- moles, mass, particles, gas volume
+def op_mole(a, v, unit, sf):
+    c = parse_formula(a); M = molar_mass(c); v = float(v)
+    n = {"g": v / M, "mol": v, "particles": v / AVOGADRO, "dm3": v / MOLAR_VOLUME}[unit]
+    rows = [["Molar mass", _fmt(M, 4) + r"\ \mathrm{g\,mol^{-1}}"], ["Amount", _fmt(n, sf) + r"\ \mathrm{mol}"], ["Mass", _fmt(n * M, sf) + r"\ \mathrm{g}"],
+            ["Particles", _fmt(n * AVOGADRO, sf)], ["Gas volume at STP", _fmt(n * MOLAR_VOLUME, sf) + r"\ \mathrm{dm^3}"]]
+    return _res("", "Amount of substance", _ce(a) + r":\ n = " + _fmt(n, sf) + r"\ \mathrm{mol}", rows,
+                "Uses N_A = 6.02 × 10²³ mol⁻¹ and 22.7 dm³ mol⁻¹ at STP. Answers to " + str(sf) + " significant figures.", _plain(n, sf) + " mol")
+
+# ---- balancing
+def op_balance(a):
+    t = re.sub(r"\s+", "", a).replace("→", "->").replace("=", "->").replace("⟶", "->")
+    if "->" not in t: raise ValueError("Write the equation with an arrow, like Fe + O2 -> Fe2O3")
+    L, R = t.split("->", 1)
+    split = lambda side: [x for x in re.split(r"\+(?![^()]*\))", side) if x]
+    reac, prod = split(L), split(R)
+    strip = lambda x: re.sub(r"^\d+(?=[A-Z(\[])", "", x)
+    reac, prod = [strip(x) for x in reac], [strip(x) for x in prod]
+    species = reac + prod; counts = [parse_formula(x) for x in species]
+    els = sorted({e for c in counts for e in c})
+    M = sp.Matrix([[(1 if j < len(reac) else -1) * c.get(e, 0) for j, c in enumerate(counts)] for e in els])
+    ns = M.nullspace()
+    if len(ns) != 1: raise ValueError("This equation cannot be balanced uniquely with these species")
+    v = ns[0]; den = sp.ilcm(*[x.q for x in v]); v = [int(x * den) for x in v]
+    g = sp.igcd(*v); v = [x // g for x in v]
+    if any(x <= 0 for x in v):
+        v = [-x for x in v]
+        if any(x <= 0 for x in v): raise ValueError("No balanced form with all positive coefficients exists")
+    co = lambda i: "" if v[i] == 1 else str(v[i])
+    lhs = " + ".join(co(i) + species[i] for i in range(len(reac)))
+    rhs = " + ".join(co(len(reac) + i) + species[len(reac) + i] for i in range(len(prod)))
+    rows = [[e, str(sum(v[j] * counts[j].get(e, 0) for j in range(len(reac)))) + " = " + str(sum(v[len(reac) + j] * counts[len(reac) + j].get(e, 0) for j in range(len(prod))))] for e in els]
+    return _res("ok", "Balanced", _ce(lhs + " -> " + rhs), rows, "Atoms of each element, left = right:", lhs + " -> " + rhs)
+
+# ---- elements
+FILL = [(1, 0), (2, 0), (2, 1), (3, 0), (3, 1), (4, 0), (3, 2), (4, 1), (5, 0), (4, 2), (5, 1), (6, 0), (4, 3), (5, 2), (6, 1), (7, 0), (5, 3), (6, 2), (7, 1)]
+CAP = {0: 2, 1: 6, 2: 10, 3: 14}; LET = "spdf"
+EXC = {"Cr": {(4, 0): 1, (3, 2): 5}, "Cu": {(4, 0): 1, (3, 2): 10}, "Nb": {(5, 0): 1, (4, 2): 4}, "Mo": {(5, 0): 1, (4, 2): 5}, "Ru": {(5, 0): 1, (4, 2): 7},
+       "Rh": {(5, 0): 1, (4, 2): 8}, "Pd": {(5, 0): 0, (4, 2): 10}, "Ag": {(5, 0): 1, (4, 2): 10}, "La": {(4, 3): 0, (5, 2): 1}, "Ce": {(4, 3): 1, (5, 2): 1},
+       "Gd": {(4, 3): 7, (5, 2): 1}, "Pt": {(6, 0): 1, (4, 3): 14, (5, 2): 9}, "Au": {(6, 0): 1, (4, 3): 14, (5, 2): 10}, "Ac": {(5, 3): 0, (6, 2): 1},
+       "Th": {(5, 3): 0, (6, 2): 2}, "Pa": {(5, 3): 2, (6, 2): 1}, "U": {(5, 3): 3, (6, 2): 1}, "Np": {(5, 3): 4, (6, 2): 1}, "Cm": {(5, 3): 7, (6, 2): 1}}
+NOBLE = [(2, "He"), (10, "Ne"), (18, "Ar"), (36, "Kr"), (54, "Xe"), (86, "Rn")]
+
+def config(sym):
+    Z = BY_SYM[sym][1]; occ = {}; left = Z
+    for nl in FILL:
+        k = min(left, CAP[nl[1]]); occ[nl] = k; left -= k
+        if left == 0: break
+    for nl, k in EXC.get(sym, {}).items(): occ[nl] = k
+    core = None
+    for nz, name in NOBLE:
+        if nz < Z and nz > 2: core = (nz, name)
+    if core:   # the core's orbitals are those of the noble gas, written as [X]
+        cocc = {}; cl = core[0]
+        for nl in FILL:
+            k = min(cl, CAP[nl[1]]); cocc[nl] = k; cl -= k
+            if cl == 0: break
+        rest = {nl: occ[nl] - cocc.get(nl, 0) for nl in occ if occ[nl] - cocc.get(nl, 0) > 0}
+        prefix = "[" + core[1] + "] "
+    else: rest, prefix = {nl: k for nl, k in occ.items() if k > 0}, ""
+    body = " ".join(str(n) + LET[l] + str(k) for (n, l), k in sorted(rest.items()))
+    return prefix + body
+
+def _period_group(Z):
+    ranges = [(1, 2, 1), (3, 10, 2), (11, 18, 3), (19, 36, 4), (37, 54, 5), (55, 86, 6), (87, 118, 7)]
+    per = next(p for lo, hi, p in ranges if lo <= Z <= hi)
+    first = {1: 1, 2: 3, 3: 11, 4: 19, 5: 37, 6: 55, 7: 87}[per]; off = Z - first
+    if per == 1: return per, 1 if Z == 1 else 18
+    if per in (2, 3): return per, off + 1 if off < 2 else off + 11
+    if per in (4, 5): return per, off + 1
+    if 57 <= Z <= 70 or 89 <= Z <= 102: return per, "f-block"
+    return per, off + 1 - (14 if off >= 17 else 0) if Z >= 71 or Z >= 103 else off + 1
+
+def op_element(q):
+    q = q.strip()
+    e = BY_SYM.get(q.capitalize() if len(q) <= 2 else q) or BY_NAME.get(q.lower()) or (BY_Z.get(int(q)) if q.isdigit() else None)
+    if not e: raise ValueError("No element called “" + q + "”. Try a symbol (Fe), a name (iron) or an atomic number (26)")
+    sym, Z, name, mass = e; per, grp = _period_group(Z)
+    blk = "f" if grp == "f-block" else "s" if (grp in (1, 2) or sym == "He") else "p" if grp in (13, 14, 15, 16, 17, 18) else "d"
+    rows = [["Atomic number", str(Z)], ["Relative atomic mass", "%.2f" % AM(sym)], ["Period", str(per)], ["Group", str(grp)], ["Block", blk],
+            ["Electron configuration", config(sym)], ["Electronegativity", str(EN[sym]) if sym in EN else "not listed"]]
+    return _res("", name, r"\mathrm{" + sym + r"}\quad Z = " + str(Z), rows, "", name + " (" + sym + ")")
+
+# ---- pH
+def op_ph(v, kind, sf):
+    v = float(v)
+    ph = {"pH": v, "pOH": 14 - v, "H": -log10(v), "OH": 14 + log10(v)}[kind]
+    poh = 14 - ph; h = 10 ** -ph; oh = 10 ** -poh
+    tone = "acidic" if ph < 7 else "basic" if ph > 7 else "neutral"
+    rows = [["pH", _fmt(ph, sf)], ["pOH", _fmt(poh, sf)], ["[H⁺] / mol dm⁻³", _fmt(h, sf)], ["[OH⁻] / mol dm⁻³", _fmt(oh, sf)]]
+    return _res("", "Solution is " + tone, r"\mathrm{pH} = " + _fmt(ph, sf), rows, "At 298 K, K_w = 1.00 × 10⁻¹⁴.", "pH " + _plain(ph, sf))
+
+def chem(op, a, b="", c="", sf=3):
+    try:
+        sf = int(sf)
+        if op == "mass": return op_mass(a)
+        if op == "mole": return op_mole(a, b, c or "g", sf)
+        if op == "balance": return op_balance(a)
+        if op == "element": return op_element(a)
+        if op == "ph": return op_ph(a, b or "pH", sf)
+        raise ValueError("unknown chemistry operation")
+    except (ValueError, KeyError, ZeroDivisionError, TypeError) as ex:
+        return json.dumps({"kind": "bad", "badge": "Could not read that", "note": str(ex)[:160], "exact": r"\text{—}", "dec": r"\text{—}", "text": "", "rows": [], "chem": True})

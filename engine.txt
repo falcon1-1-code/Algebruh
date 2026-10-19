@@ -104,6 +104,8 @@ def _limit(e, x, c):
 
 def _run(op, a, b, c, angle):
     deg = angle == "deg"
+    if re.fullmatch(r"algebr?uh+", a.strip().lower()):   # easter egg
+        return pack_text("ok", "Algebruh", "Algebruh" + "h" * min(len(a.strip()) - 8 + 2, 12), "Yes, it is maths homework. It has to be done, but at least the checking is automatic.")
     if op == "check": return check(a, b, deg)
     if op in ("eval", "simplify", "factor", "expand", "solve"):
         e, is_eq = PE(a, deg)
