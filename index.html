@@ -97,6 +97,11 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
 .chem-rows .v{min-width:0;overflow-x:auto;overflow-y:hidden;font-variant-numeric:tabular-nums}
 .chem-rows .p{color:var(--ink-2);font-size:.85rem}
 .sub{margin-bottom:2px}
+.grid5{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+.grid5 .field>span{text-transform:none;letter-spacing:0;font-size:.8rem;text-align:center}
+.grid5 input{padding:8px 4px;text-align:center;font-size:1rem}
+.check{display:flex;align-items:center;gap:8px;font-size:.88rem;color:var(--ink-2)}
+.check input{width:20px;min-height:20px;height:20px}
 .sub-panel{display:flex;flex-direction:column;gap:10px}
 .row3{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .hint{font-size:.8rem;color:var(--ink-2);margin:0}
@@ -119,6 +124,7 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
 [hidden]{display:none!important}
 .k{font:500 1.15rem var(--sans);min-height:42px;padding:0 2px;background:var(--key);color:var(--ink);border:1px solid var(--rule);border-radius:8px;cursor:pointer;touch-action:manipulation;user-select:none;-webkit-user-select:none}
 .k.fn{background:var(--key-fn);font-size:.95rem}
+.k.del{color:var(--bad);border-color:color-mix(in srgb, var(--bad) 45%, var(--rule));background:color-mix(in srgb, var(--bad) 14%, var(--key-fn))}
 .k.go-k{background:var(--accent);color:var(--on-accent);border-color:var(--accent);font-weight:600}
 .k:active{transform:scale(.95);filter:brightness(.9)}
 .chip:active,.go:active{transform:scale(.98)}
@@ -189,6 +195,9 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
     <p class="hint" id="k-hint"></p>
   </section>
   <section class="panel" id="p-sci" role="tabpanel" hidden>
+    <div class="slider small" id="subj-slider" role="tablist" aria-label="Subject" style="--n:3"><div class="thumb" id="subj-thumb"></div>
+      <button role="tab" type="button" aria-selected="true">Chem</button><button role="tab" type="button" aria-selected="false">Physics</button><button role="tab" type="button" aria-selected="false">Units</button></div>
+    <div id="grp-chem">
     <div class="slider small sub" id="sci-slider" role="tablist" aria-label="Chemistry tool" style="--n:5"><div class="thumb" id="sci-thumb"></div>
       <button role="tab" type="button" aria-selected="true">Mass</button><button role="tab" type="button" aria-selected="false">Moles</button>
       <button role="tab" type="button" aria-selected="false">Balance</button><button role="tab" type="button" aria-selected="false">Element</button>
@@ -223,6 +232,47 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
         <label class="field"><span>Is a</span><select id="s-ph-k"><option value="pH">pH</option><option value="pOH">pOH</option><option value="H">[H⁺] mol dm⁻³</option><option value="OH">[OH⁻] mol dm⁻³</option></select></label>
       </div>
       <button class="go" data-chem="ph" disabled type="button">Convert</button>
+    </div>
+    </div>
+    <div id="grp-phys" hidden>
+      <div class="slider small sub" id="phys-slider" role="tablist" aria-label="Physics tool" style="--n:2"><div class="thumb" id="phys-thumb"></div>
+        <button role="tab" type="button" aria-selected="true">SUVAT</button><button role="tab" type="button" aria-selected="false">Formulas</button></div>
+      <div class="sub-panel" id="pp-suvat">
+        <p class="hint">Constant acceleration. Fill any three, leave two blank, and the rest are found.</p>
+        <div class="grid5">
+          <label class="field"><span>s (m)</span><input class="mi" id="v-s" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+          <label class="field"><span>u (m/s)</span><input class="mi" id="v-u" value="0" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+          <label class="field"><span>v (m/s)</span><input class="mi" id="v-v" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+          <label class="field"><span>a (m/s²)</span><input class="mi" id="v-a" value="9.81" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+          <label class="field"><span>t (s)</span><input class="mi" id="v-t" value="2" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+        </div>
+        <button class="go" data-phys="suvat" disabled type="button">Solve</button>
+      </div>
+      <div class="sub-panel" id="pp-form" hidden>
+        <label class="field"><span>Formula</span><select id="f-pick"></select></label>
+        <div class="preview" id="f-eq">Choose a formula</div>
+        <div id="f-fields" class="sub-panel"></div>
+        <p class="hint">Leave exactly one box empty. That is the quantity to find.</p>
+        <button class="go" data-phys="formula" disabled type="button">Calculate</button>
+      </div>
+    </div>
+    <div id="grp-units" hidden>
+      <div class="sub-panel">
+        <div class="row3">
+          <label class="field"><span>Value</span><input class="mi" id="u-v" value="72" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+          <label class="field"><span>Quantity</span><select id="u-q"></select></label>
+        </div>
+        <div class="row3" id="u-pick">
+          <label class="field"><span>From</span><select id="u-from"></select></label>
+          <label class="field"><span>To</span><select id="u-to"></select></label>
+        </div>
+        <div class="row3" id="u-type" hidden>
+          <label class="field"><span>From</span><input id="u-from-t" value="km/h" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+          <label class="field"><span>To</span><input id="u-to-t" value="m/s" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+        </div>
+        <label class="check"><input type="checkbox" id="u-own"> Type my own units, such as kg m^2/s^2</label>
+        <button class="go" data-phys="convert" disabled type="button">Convert</button>
+      </div>
     </div>
     <label class="field" id="sf-wrap"><span>Significant figures</span><select id="s-sf"><option>2</option><option selected>3</option><option>4</option><option>5</option></select></label>
     <div class="result" id="r-s" hidden></div>
@@ -314,7 +364,7 @@ function renderResult(id){
   const c = document.createElement("button"); c.type="button"; c.className="copy"; c.textContent="Copy";
   c.addEventListener("click", async () => { try { await navigator.clipboard.writeText(d.text); c.textContent="Copied"; } catch(e){ c.textContent="Select text"; } setTimeout(()=>c.textContent="Copy",1500); });
   if (d.chem){ bar.append(c); }
-  else if (d.args && STEP_OPS.has(d.args[0]) && d.kind !== "bad"){ const sb = document.createElement("button"); sb.type = "button"; sb.className = "copy"; sb.textContent = stepsOpen[id] ? "Hide steps" : "Show steps"; sb.addEventListener("click", () => toggleSteps(id)); bar.append(seg, sb, c); }
+  else if (d.args && STEP_OPS.has(d.args[0]) && d.kind !== "bad" && d.badge !== "Angle"){ const sb = document.createElement("button"); sb.type = "button"; sb.className = "copy"; sb.textContent = stepsOpen[id] ? "Hide steps" : "Show steps"; sb.addEventListener("click", () => toggleSteps(id)); bar.append(seg, sb, c); }
   else bar.append(seg, c);
   box.append(bar);
   if (stepsOpen[id] && stepsData[id]) box.append(renderSteps(stepsData[id]));
@@ -370,7 +420,7 @@ syncCalc();
 /* ---------- keypad ---------- */
 // [label, text inserted, kind, caret offset back from end]
 const SETS = {
-  "123": [["7","7"],["8","8"],["9","9"],["÷","/","fn"],["⌫","","fn","del"],
+  "123": [["7","7"],["8","8"],["9","9"],["÷","/","fn"],["⌫","","fn del","del"],
           ["4","4"],["5","5"],["6","6"],["×","*","fn"],["(","(","fn"],
           ["1","1"],["2","2"],["3","3"],["−","-","fn"],[")",")","fn"],
           ["0","0"],[".",".",""],["^","^","fn"],["+","+","fn"],["Go","","go-k","go"]],
@@ -378,7 +428,7 @@ const SETS = {
               ["a/b","()/()","fn","",4],["x²","^2","fn"],["xⁿ","^()","fn","",1],["√","sqrt()","fn","",1],["|x|","Abs()","fn","",1],
               ["π","pi","fn"],["e","e","fn"],["=",  "=","fn"],[",",",","fn"],["C","","fn","clear"]],
   "Calculus": [["sin","sin()","fn","",1],["cos","cos()","fn","",1],["tan","tan()","fn","",1],["ln","ln()","fn","",1],["eˣ","exp()","fn","",1],
-               ["asin","asin()","fn","",1],["acos","acos()","fn","",1],["atan","atan()","fn","",1],["log","log()","fn","",1],["∞","oo","fn"],["°","°","fn"],["π","pi","fn"]],
+               ["asin","asin()","fn","",1],["acos","acos()","fn","",1],["atan","atan()","fn","",1],["log","log()","fn","",1],["∞","oo","fn"],["°","°","fn"],["rad"," rad","fn"],["→°","todeg()","fn","",1],["→rad","torad()","fn","",1],["π","pi","fn"]],
   "%": [["%","%","fn"],["% of","%*","fn"],["÷100","/100","fn"],["×100","*100","fn"],["1/x","1/()","fn","",1]],
   "Chem": [["H","H","fn"],["C","C","fn"],["N","N","fn"],["O","O","fn"],["S","S","fn"],["Cl","Cl","fn"],["Na","Na","fn"],["K","K","fn"],["Ca","Ca","fn"],["Mg","Mg","fn"],
            ["Fe","Fe","fn"],["Cu","Cu","fn"],["Al","Al","fn"],["Zn","Zn","fn"],["Br","Br","fn"],["(","(","fn"],[")",")","fn"],[".",".","fn"],["→"," -> ","fn"],["+"," + ","fn"]]
@@ -457,15 +507,60 @@ $("c-go").addEventListener("click", () => go("r-c", ["check", $("c-prob").value,
 $("k-go").addEventListener("click", () => go("r-k", [$("k-op").value, $("k-expr").value, $("k-var").value, $("k-extra").value, angle]));
 $("angle").addEventListener("click", () => { angle = angle === "deg" ? "rad" : "deg"; $("angle").textContent = angle.toUpperCase();
   document.querySelectorAll(".result").forEach(r => r.classList.add("stale")); });
-const sciSlider = makeSlider($("sci-slider"), $("sci-thumb"), 5, i => {
-  ["mass","mole","bal","el","ph"].forEach((n, j) => $("sp-" + n).hidden = j !== i);
-  $("sf-wrap").hidden = !(i === 1 || i === 4); $("r-s").hidden = true; setActive($("sp-" + ["mass","mole","bal","el","ph"][i]).querySelector(".mi")); });
+let subj = 0, chemTool = 0, physTool = 0;
+const CH = ["mass","mole","bal","el","ph"];
+function updateSci(){
+  ["chem","phys","units"].forEach((n, j) => $("grp-" + n).hidden = j !== subj);
+  CH.forEach((n, j) => $("sp-" + n).hidden = !(subj === 0 && j === chemTool));
+  $("pp-suvat").hidden = !(subj === 1 && physTool === 0); $("pp-form").hidden = !(subj === 1 && physTool === 1);
+  $("sf-wrap").hidden = !((subj === 0 && (chemTool === 1 || chemTool === 4)) || subj === 1 || subj === 2);
+  $("r-s").hidden = true;
+  const pane = subj === 0 ? $("sp-" + CH[chemTool]) : subj === 1 ? $(physTool === 0 ? "pp-suvat" : "pp-form") : $("grp-units");
+  setActive(pane.querySelector(".mi")); padSliderCtl && padSliderCtl.select(subj === 0 ? 4 : 0);
+  requestAnimationFrame(() => { sciSlider.relayout(); physSlider.relayout(); });
+}
+const subjSlider = makeSlider($("subj-slider"), $("subj-thumb"), 3, i => { subj = i; updateSci(); });
+const sciSlider = makeSlider($("sci-slider"), $("sci-thumb"), 5, i => { chemTool = i; updateSci(); });
+const physSlider = makeSlider($("phys-slider"), $("phys-thumb"), 2, i => { physTool = i; updateSci(); if (i === 1) loadFormulas(); });
 $("sf-wrap").hidden = true;
 document.querySelectorAll(".mi[data-ce]").forEach(updatePreview);
 const chemArgs = {
   mass: () => ["mass", $("s-mass").value], mole: () => ["mole", $("s-mole-f").value, $("s-mole-v").value, $("s-mole-u").value, $("s-sf").value],
   balance: () => ["balance", $("s-bal").value], element: () => ["element", $("s-el").value], ph: () => ["ph", $("s-ph-v").value, $("s-ph-k").value, "", $("s-sf").value]};
 document.querySelectorAll("[data-chem]").forEach(b => b.addEventListener("click", () => go("r-s", chemArgs[b.dataset.chem](), "chem")));
+
+/* ---------- physics and units ---------- */
+let formulas = null;
+async function loadFormulas(){
+  if (formulas || !ready) return;
+  try { formulas = JSON.parse(await call("phys", ["list"], 10000)); } catch(e){ return; }
+  const pick = $("f-pick"); const groups = {};
+  formulas.forEach((f, i) => { (groups[f.group] = groups[f.group] || []).push([f, i]); });
+  Object.entries(groups).forEach(([g, items]) => { const og = document.createElement("optgroup"); og.label = g;
+    items.forEach(([f, i]) => { const o = document.createElement("option"); o.value = i; o.textContent = f.name; og.append(o); }); pick.append(og); });
+  pick.addEventListener("change", renderFormula); renderFormula();
+}
+function renderFormula(){
+  const f = formulas[+$("f-pick").value]; const box = $("f-fields"); box.textContent = "";
+  typeset($("f-eq"), f.eq.replace(/\*\*/g, "^").replace(/\*/g, " ").replace(/\blam\b/g, "\\lambda").replace(/\bpi\b/g, "\\pi").replace(/\brho\b/g, "\\rho").replace(/\bomega\b/g, "\\omega").replace(/\btheta(\d?)\b/g, "\\theta_$1").replace(/\bsqrt\(/g, "\\sqrt(").replace(/\bsin\(/g, "\\sin(").replace(/\bcos\(/g, "\\cos(").replace(/\bexp\(/g, "\\exp(").replace(/\blog\(/g, "\\log("), false);
+  f.vars.forEach(v => { const l = document.createElement("label"); l.className = "field"; const sp_ = document.createElement("span"); sp_.textContent = v[1] + (v[2] ? " (" + v[2] + ")" : ""); l.append(sp_);
+    const i = document.createElement("input"); i.className = "mi"; i.id = "ff-" + v[0]; i.value = v[3]; i.setAttribute("autocapitalize","off"); i.setAttribute("autocomplete","off"); i.setAttribute("spellcheck","false");
+    i.setAttribute("inputmode", keysOn && !sysKb ? "none" : "text");
+    i.addEventListener("focus", () => setActive(i)); i.addEventListener("keydown", e => { if (e.key === "Enter") runPanel(i); }); l.append(i); box.append(l); });
+}
+const UNIT_GROUPS = {Length:["m","km","cm","mm","um","nm","in","ft","yd","mi","ly","au","pc"], Mass:["kg","g","mg","t","lb","oz","u"], Time:["s","ms","us","min","h","d","yr"],
+  Speed:["m/s","km/h","mph","kn","c"], Force:["N","kN","mN"], Energy:["J","kJ","MJ","eV","keV","MeV","cal","kcal","kWh"], Power:["W","kW","MW","hp"],
+  Pressure:["Pa","kPa","MPa","atm","bar","mmHg","psi"], Temperature:["K","degC","degF"], Volume:["L","mL","m^3","dm^3","cm^3"], Angle:["rad","deg"], Frequency:["Hz","kHz","MHz","GHz","rpm"],
+  Charge:["C","mC","uC"], Current:["A","mA"], Voltage:["V","mV","kV"], Resistance:["ohm","kohm","Mohm"], Density:["kg/m^3","g/cm^3","g/mL"]};
+const uq = $("u-q"); Object.keys(UNIT_GROUPS).forEach(q => { const o = document.createElement("option"); o.textContent = q; uq.append(o); });
+function fillUnits(){ ["u-from","u-to"].forEach((id, k) => { const s = $(id); s.textContent = ""; UNIT_GROUPS[uq.value].forEach((u, i) => { const o = document.createElement("option"); o.textContent = u; if (i === k) o.selected = true; s.append(o); }); }); }
+uq.addEventListener("change", fillUnits); uq.value = "Speed"; fillUnits(); $("u-from").value = "km/h"; $("u-to").value = "m/s";
+$("u-own").addEventListener("change", () => { $("u-pick").hidden = $("u-own").checked; $("u-type").hidden = !$("u-own").checked; });
+const physArgs = {
+  suvat: () => ["suvat", JSON.stringify({s: $("v-s").value, u: $("v-u").value, v: $("v-v").value, a: $("v-a").value, t: $("v-t").value}), "", "", $("s-sf").value],
+  formula: () => { const f = formulas[+$("f-pick").value], vals = {}; f.vars.forEach(v => vals[v[0]] = $("ff-" + v[0]).value); return ["formula", f.key, JSON.stringify(vals), "", $("s-sf").value]; },
+  convert: () => ["convert", $("u-v").value, $("u-own").checked ? $("u-from-t").value : $("u-from").value, $("u-own").checked ? $("u-to-t").value : $("u-to").value, $("s-sf").value]};
+document.querySelectorAll("[data-phys]").forEach(b => b.addEventListener("click", () => go("r-s", physArgs[b.dataset.phys](), "phys")));
 startWorker();
 </script>
 <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});</script></body></html>

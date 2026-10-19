@@ -12,19 +12,35 @@ _SCI = re.compile(r'(?<![\w.])(\d+\.?\d*|\.\d+)[eE]([+-]?\d+)(?![\d.])')
 
 _TRIG = ("sin", "cos", "tan", "sec", "csc", "cot")
 
-def _ns(deg):
+_UNITS = ("__DEG__", "__RAD__")
+
+def _arg(x, deg):
+    """Angle argument in radians. Terms tagged ° or rad keep their own unit; bare numbers follow the DEG/RAD switch."""
+    x = sp.sympify(x)
+    tags = {v.name: v for v in x.free_symbols if v.name in _UNITS}
+    if not tags: return x * pi / 180 if deg else x
+    out = 0
+    for t in Add.make_args(sp.expand(x)):
+        if "__DEG__" in tags and t.has(tags["__DEG__"]): out += t.subs(tags["__DEG__"], pi / 180)
+        elif "__RAD__" in tags and t.has(tags["__RAD__"]): out += t.subs(tags["__RAD__"], 1)
+        else: out += t * pi / 180 if deg else t
+    return out
+
+def _ns(deg, trig=True):
     """Names the parser knows. log is base 10 (IB), ln is natural, e is Euler's number."""
     d = {"e": E, "ln": sp.log, "lg": lambda x: sp.log(x, 10), "log10": lambda x: sp.log(x, 10),
-         "log": lambda x, b=10: sp.log(x, b)}
-    if deg:
-        d.update(sin=lambda x: sp.sin(x * pi / 180), cos=lambda x: sp.cos(x * pi / 180), tan=lambda x: sp.tan(x * pi / 180),
-                 sec=lambda x: sp.sec(x * pi / 180), csc=lambda x: sp.csc(x * pi / 180), cot=lambda x: sp.cot(x * pi / 180),
-                 asin=lambda x: sp.asin(x) * 180 / pi, acos=lambda x: sp.acos(x) * 180 / pi, atan=lambda x: sp.atan(x) * 180 / pi)
+         "log": lambda x, b=10: sp.log(x, b), "todeg": lambda x: sp.sympify(x) * 180 / pi, "torad": lambda x: sp.sympify(x) * pi / 180}
+    if trig:
+        for n in ("sin", "cos", "tan", "sec", "csc", "cot"):
+            f = getattr(sp, n); d[n] = (lambda f: lambda x: f(_arg(x, deg)))(f)
+        if deg:
+            d.update(asin=lambda x: sp.asin(x) * 180 / pi, acos=lambda x: sp.acos(x) * 180 / pi, atan=lambda x: sp.atan(x) * 180 / pi)
     return d
 
 def _norm(s, deg=False):
     s = s.replace("×", "*").replace("÷", "/").replace("−", "-").replace("π", "pi").replace("√", "sqrt")
-    s = s.replace("°", "" if deg else "*pi/180")                # in degree mode the trig functions already expect degrees
+    s = s.replace("°", "*__DEG__")                              # an angle in degrees
+    s = re.sub(r'(?<=[\d)])\s*rad\b', '*__RAD__', s)              # an angle in radians, as in 2 rad or (pi/3)rad
     s = _SCI.sub(r'(\1*10**(\2))', s)                         # 6.02e23 -> (6.02*10**(23))
     s = re.sub(r'\bof\b', '*', s)                              # 20% of 50
     s = re.sub(r'(\d+(?:\.\d+)?)\s*%', r'(\1/100)', s)     # 20% -> (20/100)
@@ -35,7 +51,7 @@ def P(s, evaluate=True, exact=True, deg=False):
     s = _norm(s, deg)
     if exact:  # decimals become exact fractions so 0.25 + 1/4 mixes cleanly
         s = _DEC.sub(lambda m: 'Rational("%s")' % m.group(1), s)
-    e = parse_expr(s, transformations=T, evaluate=evaluate, local_dict=_ns(deg))
+    e = parse_expr(s, transformations=T, evaluate=evaluate, local_dict=_ns(deg, trig=evaluate))
     if evaluate:  # letters are real numbers, so |x|, sqrt(x^2) and ln|x| behave as in school
         e = e.xreplace({v: Symbol(v.name, real=True) for v in e.free_symbols if isinstance(v, Symbol)})
     return e
@@ -57,7 +73,14 @@ def D(e, digits=10):
     try: return e.func(*[D(a, digits) for a in e.args])
     except Exception: return e
 
-def tex(r, order=None): return latex(r, mul_symbol=None, inv_trig_style="power", ln_notation=True, order=order)
+def tex(r, order=None):
+    names = {}
+    try:
+        for v in sp.sympify(r).free_symbols:
+            if v.name == "__DEG__": names[v] = r"^{\circ}"
+            elif v.name == "__RAD__": names[v] = r"\,\mathrm{rad}"
+    except Exception: pass
+    return latex(r, mul_symbol=None, inv_trig_style="power", ln_notation=True, order=order, symbol_names=names)
 
 def pack(kind, badge, r, note=""):
     try: dtex = tex(D(r))
@@ -118,6 +141,11 @@ def _run(op, a, b, c, angle):
             x = Symbol(b, real=True) if b else (sorted(e.free_symbols, key=str) or [Symbol("x", real=True)])[0]
             sols = solve(e, x)
             return pack("", "", Tuple(*[Eq(x, s) for s in sols]) if sols else S.EmptySet, note or ("" if sols else "No real solutions."))
+        if op in ("eval", "simplify") and not is_eq and any(v.name in _UNITS for v in e.free_symbols):
+            rad_v = simplify(_arg(e, deg)); deg_v = simplify(rad_v * 180 / pi)
+            ex = tex(rad_v) + r"\ \mathrm{rad} = " + tex(deg_v) + r"^{\circ}"
+            dc = tex(D(rad_v)) + r"\ \mathrm{rad} = " + tex(D(deg_v)) + r"^{\circ}"
+            return json.dumps({"kind": "", "badge": "Angle", "note": "Shown in radians and degrees.", "exact": ex, "dec": dc, "text": str(rad_v).replace("**", "^") + " rad"})
         r = {"eval": lambda v: simplify(v) if v.free_symbols else v, "simplify": simplify, "factor": factor, "expand": expand}[op](e)
         return pack("", "", r, note)
     e, _ = PE(a)                       # calculus is always in radians

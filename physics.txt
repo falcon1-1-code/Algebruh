@@ -1,0 +1,171 @@
+# Units and physics for Algebruh. Loaded after engine.txt and chem.txt (uses P, _fmt, _plain, json, sp).
+import re
+
+# ---------------- units ----------------
+# dims: (m, kg, s, A, K, mol). factor converts one unit to SI base units.
+def _u(f, m=0, kg=0, s=0, A=0, K=0, mol=0): return (f, (m, kg, s, A, K, mol))
+UNITS = {
+ "m": _u(1, m=1), "in": _u(0.0254, m=1), "ft": _u(0.3048, m=1), "yd": _u(0.9144, m=1), "mi": _u(1609.344, m=1),
+ "ly": _u(9.4607e15, m=1), "au": _u(1.496e11, m=1), "pc": _u(3.0857e16, m=1), "angstrom": _u(1e-10, m=1),
+ "g": _u(1e-3, kg=1), "kg": _u(1, kg=1), "t": _u(1000, kg=1), "lb": _u(0.45359237, kg=1), "oz": _u(0.028349523, kg=1), "u": _u(1.66054e-27, kg=1),
+ "s": _u(1, s=1), "min": _u(60, s=1), "h": _u(3600, s=1), "d": _u(86400, s=1), "yr": _u(3.156e7, s=1),
+ "A": _u(1, A=1), "K": _u(1, K=1), "mol": _u(1, mol=1),
+ "Hz": _u(1, s=-1), "N": _u(1, m=1, kg=1, s=-2), "J": _u(1, m=2, kg=1, s=-2), "W": _u(1, m=2, kg=1, s=-3), "Pa": _u(1, m=-1, kg=1, s=-2),
+ "C": _u(1, A=1, s=1), "V": _u(1, m=2, kg=1, s=-3, A=-1), "ohm": _u(1, m=2, kg=1, s=-3, A=-2), "F": _u(1, m=-2, kg=-1, s=4, A=2),
+ "T": _u(1, kg=1, s=-2, A=-1), "Wb": _u(1, m=2, kg=1, s=-2, A=-1), "H": _u(1, m=2, kg=1, s=-2, A=-2),
+ "eV": _u(1.602e-19, m=2, kg=1, s=-2), "cal": _u(4.184, m=2, kg=1, s=-2), "kcal": _u(4184, m=2, kg=1, s=-2), "Wh": _u(3600, m=2, kg=1, s=-2), "kWh": _u(3.6e6, m=2, kg=1, s=-2),
+ "hp": _u(745.7, m=2, kg=1, s=-3), "atm": _u(101325, m=-1, kg=1, s=-2), "bar": _u(1e5, m=-1, kg=1, s=-2), "mmHg": _u(133.322, m=-1, kg=1, s=-2), "torr": _u(133.322, m=-1, kg=1, s=-2), "psi": _u(6894.76, m=-1, kg=1, s=-2),
+ "L": _u(1e-3, m=3), "rad": _u(1), "deg": _u(0.017453292519943295), "rpm": _u(0.10471975511965977, s=-1),
+ "mph": _u(0.44704, m=1, s=-1), "kn": _u(0.514444, m=1, s=-1), "c": _u(2.998e8, m=1, s=-1),
+}
+ALIAS = {"°": "deg", "degree": "deg", "degrees": "deg", "Ω": "ohm", "μm": "um", "gram": "g", "meter": "m", "metre": "m", "second": "s", "sec": "s", "hr": "h", "hour": "h", "day": "d", "year": "yr", "litre": "L", "liter": "L", "l": "L", "lbs": "lb", "kph": "km/h"}
+PREFIX = {"Y": 1e24, "Z": 1e21, "E": 1e18, "P": 1e15, "T": 1e12, "G": 1e9, "M": 1e6, "k": 1e3, "h": 1e2, "da": 1e1, "d": 1e-1, "c": 1e-2, "m": 1e-3, "μ": 1e-6, "u": 1e-6, "n": 1e-9, "p": 1e-12, "f": 1e-15, "a": 1e-18}
+PREFIXABLE = {"m", "g", "s", "A", "K", "mol", "Hz", "N", "J", "W", "Pa", "C", "V", "ohm", "F", "T", "Wb", "H", "eV", "cal", "Wh", "bar", "L", "t", "u"}
+TEMPS = {"K": "K", "degC": "C", "°C": "C", "celsius": "C", "degF": "F", "°F": "F", "fahrenheit": "F", "kelvin": "K"}
+
+def _unit(tok):
+    tok = ALIAS.get(tok, tok)
+    if tok in UNITS: return UNITS[tok]
+    for p in sorted(PREFIX, key=len, reverse=True):
+        if tok.startswith(p) and tok[len(p):] in PREFIXABLE and len(tok) > len(p):
+            f, d = UNITS[tok[len(p):]]; return (f * PREFIX[p], d)
+    raise ValueError("Unknown unit “" + tok + "”")
+
+def parse_units(s):
+    s = s.strip().replace("·", "*").replace("⁻¹", "^-1").replace("²", "^2").replace("³", "^3").replace("μ", "u").replace("Ω", "ohm").replace("°", "deg")
+    if s in ALIAS and "/" in ALIAS[s]: s = ALIAS[s]
+    num, _, den = s.partition("/")
+    den = den.strip("() ")
+    fac, dims = 1.0, [0] * 6
+    for part, sign in ((num, 1), (den, -1)):
+        for tok in re.split(r"[\s*]+", part.strip("() ")):
+            if not tok: continue
+            m = re.match(r"^([^\^]+?)(?:\^\(?(-?\d+)\)?)?$", tok)
+            if not m: raise ValueError("Cannot read unit “" + tok + "”")
+            e = int(m.group(2) or 1) * sign; f, d = _unit(m.group(1))
+            fac *= f ** e; dims = [x + y * e for x, y in zip(dims, d)]
+    return fac, tuple(dims)
+
+def _temp(v, a, b):
+    k = {"K": v, "C": v + 273.15, "F": (v - 32) * 5 / 9 + 273.15}[a]
+    return {"K": k, "C": k - 273.15, "F": (k - 273.15) * 9 / 5 + 32}[b]
+
+def op_convert(v, a, b, sf):
+    val = float(P(v).evalf()); sf = int(sf)
+    if a.strip() in TEMPS and b.strip() in TEMPS:
+        r = _temp(val, TEMPS[a.strip()], TEMPS[b.strip()])
+        return _res("", "Converted", _fmt(val, sf) + r"\ \mathrm{" + a.strip() + r"} = " + _fmt(r, sf) + r"\ \mathrm{" + b.strip() + "}", [], "", _plain(r, sf) + " " + b)
+    fa, da = parse_units(a); fb, db = parse_units(b)
+    if da != db: raise ValueError("Those units measure different things, so they cannot be converted")
+    r = val * fa / fb
+    rows = [["Factor", _fmt(fa / fb, 6)], ["In SI base units", _fmt(val * fa, sf)]]
+    tx = lambda u: r"\mathrm{" + u.strip().replace("^", "^{").replace(" ", r"\,") + "}" if "^" not in u else r"\mathrm{" + re.sub(r"\^(-?\d+)", r"^{\1}", u.strip()).replace(" ", r"\,") + "}"
+    return _res("", "Converted", _fmt(val, sf) + r"\ " + tx(a) + " = " + _fmt(r, sf) + r"\ " + tx(b), rows, "Answers to " + str(sf) + " significant figures.", _plain(r, sf) + " " + b)
+
+# ---------------- SUVAT ----------------
+def op_suvat(vals, sf):
+    s_, u_, v_, a_, t_ = sp.symbols("s u v a t", real=True)
+    names = {"s": s_, "u": u_, "v": v_, "a": a_, "t": t_}
+    known = {k: sp.nsimplify(P(x), rational=True) for k, x in vals.items() if str(x).strip() != ""}
+    if len(known) != 3: raise ValueError("Fill exactly three of s, u, v, a, t and leave the other two blank")
+    unknown = [names[k] for k in names if k not in known]
+    eqs = [v_ - (u_ + a_ * t_), s_ - (u_ + v_) / 2 * t_, s_ - (u_ * t_ + a_ * t_**2 / 2), v_**2 - (u_**2 + 2 * a_ * s_), s_ - (v_ * t_ - a_ * t_**2 / 2)]
+    labels = ["v = u + at", "s = ½(u + v)t", "s = ut + ½at²", "v² = u² + 2as", "s = vt − ½at²"]
+    sub = {names[k]: x for k, x in known.items()}
+    used = []
+    for i in range(5):
+        for j in range(i + 1, 5):
+            e1, e2 = eqs[i].subs(sub), eqs[j].subs(sub)
+            if unknown and not ({*unknown} & e1.free_symbols) and not ({*unknown} & e2.free_symbols): continue
+            sol = sp.solve([e1, e2], unknown, dict=True)
+            sol = [d for d in sol if len(d) == 2 and all(x.is_real for x in d.values())]
+            if sol: used = (i, j); break
+        if used: break
+    if not used: raise ValueError("No real solution for these values")
+    good = [d for d in sol if not (t_ in d and d[t_] < 0)]
+    good = good or sol
+    rows = []
+    for k in "suvat":
+        if k in known: rows.append([k, _fmt(float(known[k]), sf) + " (given)"])
+        else: rows.append([k, " or ".join(_fmt(float(d[names[k]]), sf) for d in good)])
+    main = ", ".join(r"%s = %s" % (k, _fmt(float(good[0][names[k]]), sf)) for k in "suvat" if k not in known)
+    note = "Equations used: " + labels[used[0]] + " and " + labels[used[1]] + "." + (" Two valid solutions are listed." if len(good) > 1 else "")
+    return _res("", "Solved", main, rows, note, main)
+
+# ---------------- formula library ----------------
+# (key, group, name, equation, {symbol: (label, unit, default or None, latex symbol)})
+FORMULAS = [
+ ("F=ma", "Mechanics", "Newton's second law", "F = m*a", {"F": ("Force", "N", None, "F"), "m": ("Mass", "kg", None, "m"), "a": ("Acceleration", "m s⁻²", None, "a")}),
+ ("W=mg", "Mechanics", "Weight", "W = m*g", {"W": ("Weight", "N", None, "W"), "m": ("Mass", "kg", None, "m"), "g": ("Gravitational field strength", "N kg⁻¹", "9.81", "g")}),
+ ("p=mv", "Mechanics", "Momentum", "p = m*v", {"p": ("Momentum", "kg m s⁻¹", None, "p"), "m": ("Mass", "kg", None, "m"), "v": ("Velocity", "m s⁻¹", None, "v")}),
+ ("impulse", "Mechanics", "Impulse = change in momentum", "F*t = m*(v - u)", {"F": ("Force", "N", None, "F"), "t": ("Time", "s", None, "\\Delta t"), "m": ("Mass", "kg", None, "m"), "u": ("Initial velocity", "m s⁻¹", None, "u"), "v": ("Final velocity", "m s⁻¹", None, "v")}),
+ ("Ek", "Mechanics", "Kinetic energy", "E = m*v**2/2", {"E": ("Kinetic energy", "J", None, "E_k"), "m": ("Mass", "kg", None, "m"), "v": ("Speed", "m s⁻¹", None, "v")}),
+ ("Ep", "Mechanics", "Gravitational potential energy", "E = m*g*h", {"E": ("Energy", "J", None, "E_p"), "m": ("Mass", "kg", None, "m"), "g": ("Field strength", "N kg⁻¹", "9.81", "g"), "h": ("Height", "m", None, "\\Delta h")}),
+ ("work", "Mechanics", "Work done", "W = F*s*cos(theta*pi/180)", {"W": ("Work", "J", None, "W"), "F": ("Force", "N", None, "F"), "s": ("Displacement", "m", None, "s"), "theta": ("Angle", "°", "0", "\\theta")}),
+ ("P=W/t", "Mechanics", "Power", "P = W/t", {"P": ("Power", "W", None, "P"), "W": ("Work or energy", "J", None, "W"), "t": ("Time", "s", None, "t")}),
+ ("P=Fv", "Mechanics", "Power from force and speed", "P = F*v", {"P": ("Power", "W", None, "P"), "F": ("Force", "N", None, "F"), "v": ("Speed", "m s⁻¹", None, "v")}),
+ ("rho", "Mechanics", "Density", "rho = m/V", {"rho": ("Density", "kg m⁻³", None, "\\rho"), "m": ("Mass", "kg", None, "m"), "V": ("Volume", "m³", None, "V")}),
+ ("P=F/A", "Mechanics", "Pressure", "P = F/A", {"P": ("Pressure", "Pa", None, "P"), "F": ("Force", "N", None, "F"), "A": ("Area", "m²", None, "A")}),
+ ("P=rgh", "Mechanics", "Fluid pressure", "P = rho*g*h", {"P": ("Pressure", "Pa", None, "P"), "rho": ("Density", "kg m⁻³", None, "\\rho"), "g": ("Field strength", "N kg⁻¹", "9.81", "g"), "h": ("Depth", "m", None, "h")}),
+ ("hooke", "Mechanics", "Hooke's law", "F = k*x", {"F": ("Force", "N", None, "F"), "k": ("Spring constant", "N m⁻¹", None, "k"), "x": ("Extension", "m", None, "x")}),
+ ("circ-v", "Circular motion", "Speed on a circle", "v = 2*pi*r/T", {"v": ("Speed", "m s⁻¹", None, "v"), "r": ("Radius", "m", None, "r"), "T": ("Period", "s", None, "T")}),
+ ("circ-a", "Circular motion", "Centripetal acceleration", "a = v**2/r", {"a": ("Acceleration", "m s⁻²", None, "a"), "v": ("Speed", "m s⁻¹", None, "v"), "r": ("Radius", "m", None, "r")}),
+ ("circ-F", "Circular motion", "Centripetal force", "F = m*v**2/r", {"F": ("Force", "N", None, "F"), "m": ("Mass", "kg", None, "m"), "v": ("Speed", "m s⁻¹", None, "v"), "r": ("Radius", "m", None, "r")}),
+ ("omega", "Circular motion", "Angular speed", "omega = 2*pi/T", {"omega": ("Angular speed", "rad s⁻¹", None, "\\omega"), "T": ("Period", "s", None, "T")}),
+ ("grav-F", "Gravitation", "Newton's law of gravitation", "F = G*m1*m2/r**2", {"F": ("Force", "N", None, "F"), "G": ("G", "N m² kg⁻²", "6.67e-11", "G"), "m1": ("Mass 1", "kg", None, "m_1"), "m2": ("Mass 2", "kg", None, "m_2"), "r": ("Separation", "m", None, "r")}),
+ ("grav-g", "Gravitation", "Gravitational field strength", "g = G*M/r**2", {"g": ("Field strength", "N kg⁻¹", None, "g"), "G": ("G", "N m² kg⁻²", "6.67e-11", "G"), "M": ("Mass", "kg", None, "M"), "r": ("Distance", "m", None, "r")}),
+ ("pend", "Oscillations and waves", "Simple pendulum period", "T = 2*pi*sqrt(l/g)", {"T": ("Period", "s", None, "T"), "l": ("Length", "m", None, "l"), "g": ("Field strength", "N kg⁻¹", "9.81", "g")}),
+ ("spring", "Oscillations and waves", "Mass–spring period", "T = 2*pi*sqrt(m/k)", {"T": ("Period", "s", None, "T"), "m": ("Mass", "kg", None, "m"), "k": ("Spring constant", "N m⁻¹", None, "k")}),
+ ("wave", "Oscillations and waves", "Wave speed", "v = f*lam", {"v": ("Speed", "m s⁻¹", None, "v"), "f": ("Frequency", "Hz", None, "f"), "lam": ("Wavelength", "m", None, "\\lambda")}),
+ ("freq", "Oscillations and waves", "Frequency and period", "f = 1/T", {"f": ("Frequency", "Hz", None, "f"), "T": ("Period", "s", None, "T")}),
+ ("snell", "Oscillations and waves", "Snell's law", "n1*sin(theta1*pi/180) = n2*sin(theta2*pi/180)", {"n1": ("Refractive index 1", "", None, "n_1"), "theta1": ("Angle 1", "°", None, "\\theta_1"), "n2": ("Refractive index 2", "", None, "n_2"), "theta2": ("Angle 2", "°", None, "\\theta_2")}),
+ ("lens", "Oscillations and waves", "Thin lens equation", "1/f = 1/u + 1/v", {"f": ("Focal length", "m", None, "f"), "u": ("Object distance", "m", None, "u"), "v": ("Image distance", "m", None, "v")}),
+ ("ohm", "Electricity", "Ohm's law", "V = I*R", {"V": ("Voltage", "V", None, "V"), "I": ("Current", "A", None, "I"), "R": ("Resistance", "Ω", None, "R")}),
+ ("P=VI", "Electricity", "Electrical power", "P = V*I", {"P": ("Power", "W", None, "P"), "V": ("Voltage", "V", None, "V"), "I": ("Current", "A", None, "I")}),
+ ("Q=It", "Electricity", "Charge", "Q = I*t", {"Q": ("Charge", "C", None, "Q"), "I": ("Current", "A", None, "I"), "t": ("Time", "s", None, "t")}),
+ ("R=rL/A", "Electricity", "Resistance of a wire", "R = rho*L/A", {"R": ("Resistance", "Ω", None, "R"), "rho": ("Resistivity", "Ω m", None, "\\rho"), "L": ("Length", "m", None, "L"), "A": ("Cross-section area", "m²", None, "A")}),
+ ("Q=mcdT", "Thermal", "Specific heat capacity", "Q = m*c*dT", {"Q": ("Energy", "J", None, "Q"), "m": ("Mass", "kg", None, "m"), "c": ("Specific heat capacity", "J kg⁻¹ K⁻¹", None, "c"), "dT": ("Temperature change", "K", None, "\\Delta T")}),
+ ("Q=mL", "Thermal", "Latent heat", "Q = m*L", {"Q": ("Energy", "J", None, "Q"), "m": ("Mass", "kg", None, "m"), "L": ("Specific latent heat", "J kg⁻¹", None, "L")}),
+ ("gas", "Thermal", "Ideal gas law", "P*V = n*R*T", {"P": ("Pressure", "Pa", None, "P"), "V": ("Volume", "m³", None, "V"), "n": ("Amount", "mol", None, "n"), "R": ("R", "J mol⁻¹ K⁻¹", "8.31", "R"), "T": ("Temperature", "K", None, "T")}),
+ ("photon", "Atomic and nuclear", "Photon energy", "E = h*f", {"E": ("Energy", "J", None, "E"), "h": ("h", "J s", "6.63e-34", "h"), "f": ("Frequency", "Hz", None, "f")}),
+ ("c=f lam", "Atomic and nuclear", "Light: c = fλ", "c = f*lam", {"c": ("Speed of light", "m s⁻¹", "3.00e8", "c"), "f": ("Frequency", "Hz", None, "f"), "lam": ("Wavelength", "m", None, "\\lambda")}),
+ ("decay", "Atomic and nuclear", "Radioactive decay", "N = N0*exp(-lam*t)", {"N": ("Remaining", "", None, "N"), "N0": ("Initial", "", None, "N_0"), "lam": ("Decay constant", "s⁻¹", None, "\\lambda"), "t": ("Time", "s", None, "t")}),
+ ("halflife", "Atomic and nuclear", "Half-life", "lam = log(2)/T12", {"lam": ("Decay constant", "s⁻¹", None, "\\lambda"), "T12": ("Half-life", "s", None, "T_{1/2}")}),
+]
+BYKEY = {f[0]: f for f in FORMULAS}
+
+def formula_list(): return json.dumps([{"key": f[0], "group": f[1], "name": f[2], "eq": f[3], "vars": [[k, v[0], v[1], v[2] or "", v[3]] for k, v in f[4].items()]} for f in FORMULAS])
+
+def op_formula(key, vals, sf):
+    f = BYKEY[key]; sf = int(sf); spec = f[4]
+    syms = {k: sp.Symbol(k, real=True) for k in spec}
+    lhs, rhs = f[3].split("=", 1)
+    eq = sp.sympify(lhs, locals=syms) - sp.sympify(rhs, locals=syms)
+    blanks = [k for k in spec if str(vals.get(k, "")).strip() == ""]
+    if len(blanks) != 1: raise ValueError("Leave exactly one box empty: that is the quantity to find")
+    unk = blanks[0]
+    num = {syms[k]: float(P(str(vals[k])).evalf()) for k in spec if k != unk}
+    sols = sp.solve(eq, syms[unk])
+    if not sols: raise ValueError("This equation has no solution for the values given")
+    out = []
+    for s_ in sols:
+        v = complex(s_.subs(num).evalf())
+        if abs(v.imag) < 1e-12: out.append(v.real)
+    if not out: raise ValueError("No real value fits these numbers")
+    if unk in ("theta", "theta1", "theta2") and key in ("work", "snell"):   # these formulas take degrees
+        pass
+    lab, unit, _, tx = spec[unk]
+    main = tx + " = " + " \\ \\text{or}\\ ".join(_fmt(x, sf) for x in out) + (r"\ \mathrm{" + unit.replace(" ", r"\,") + "}" if unit else "")
+    rows = [[v[0], (str(vals[k]).strip() or "?") + (" " + v[1] if v[1] else "")] for k, v in spec.items()]
+    rows.append(["Rearranged", unk + " = " + str(sols[0])])
+    return _res("", f[2], main, rows, "Answers to " + str(sf) + " significant figures.", _plain(out[0], sf))
+
+def phys(op, a="", b="", c="", sf=3):
+    try:
+        if op == "list": return formula_list()
+        if op == "convert": return op_convert(a, b, c, sf)
+        if op == "suvat": return op_suvat(json.loads(a), int(sf))
+        if op == "formula": return op_formula(a, json.loads(b), sf)
+        raise ValueError("unknown physics operation")
+    except (ValueError, KeyError, ZeroDivisionError, TypeError, sp.SympifyError, SyntaxError) as ex:
+        return json.dumps({"kind": "bad", "badge": "Could not compute", "note": str(ex)[:160], "exact": r"\text{—}", "dec": r"\text{—}", "text": "", "rows": [], "chem": True})
