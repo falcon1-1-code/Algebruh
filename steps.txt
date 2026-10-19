@@ -1,0 +1,325 @@
+# Step-by-step solutions for Algebra Desk. Loaded after engine.txt into the same namespace.
+# Rule: a chain is only shown if every checkable step equals the problem and the end matches the engine's answer.
+from sympy import Derivative, Poly, divisors, factor_terms, Integer, sqrt, Abs, ilcm, fraction, Wild, sign, exp, log, sin, cos, tan
+from sympy.integrals.manualintegrate import integral_steps
+import sympy.integrals.manualintegrate as MI
+
+class Steps:
+    def __init__(self): self.items = []
+    def add(self, text, tex_, expr=None): self.items.append({"text": text[:1].upper() + text[1:], "tex": tex_, "_e": expr})
+
+def tm(x): return "$" + tex(x) + "$"
+
+def _out(st, note=""):
+    return json.dumps({"ok": True, "note": note, "steps": [{"text": i["text"], "tex": i["tex"]} for i in st.items]})
+
+def _fail(msg): return json.dumps({"ok": False, "note": msg, "steps": []})
+
+def _plain(e): return sp.sympify(e).doit().xreplace({v: Symbol(v.name) for v in sp.sympify(e).free_symbols if isinstance(v, Symbol)})
+def _same(a, b):
+    try: return simplify(_plain(a) - _plain(b)) == 0
+    except Exception: return False
+
+def _verify(st, start):
+    return all(i["_e"] is None or _same(i["_e"], start) for i in st.items)
+
+# ---------------- factoring ----------------
+def _sqroot(t):
+    c, rest = t.as_coeff_Mul()
+    if c < 0 or not c.is_Rational: return None
+    r = sp.sqrt(c)
+    if not r.is_Rational: return None
+    out = r
+    for b, k in rest.as_powers_dict().items():
+        if b == 1: continue
+        if k % 2: return None
+        out *= b ** (k // 2)
+    return out
+
+def _is_final(p):
+    return not isinstance(p, Add) or irreducible(p)
+
+def _pt(parts):  # product of parts, unevaluated
+    if parts and parts[0] == -1 and len(parts) > 1:
+        rest = parts[1:]
+        return "-" + (r"\left(" + tex(rest[0]) + r"\right)" if len(rest) == 1 and isinstance(rest[0], Add) else _pt(rest))
+    ps = [p for p in parts if p != 1]
+    return tex(Mul(*ps, evaluate=False)) if len(ps) > 1 else tex(ps[0] if ps else Integer(1))
+
+def _quad_form(p):
+    """(Z, W, a, b, c) when p = aZ^2 + bZW + cW^2, else None."""
+    syms = sorted(p.free_symbols, key=str)
+    if len(syms) == 1:
+        x = syms[0]; pl = Poly(p, x); degs = {m[0] for m in pl.monoms()}
+        if len(degs) < 2: return None
+        k = max(degs) // 2
+        if max(degs) != 2 * k or not degs <= {2 * k, k, 0}: return None
+        z = x ** k
+        a, b, c = pl.coeff_monomial(x ** (2 * k)), pl.coeff_monomial(x ** k), pl.coeff_monomial(1)
+        return (z, Integer(1), a, b, c)
+    if len(syms) == 2:
+        x, y = syms; pl = Poly(p, x, y)
+        if all(sum(m) == 2 for m in pl.monoms()):
+            return (x, y, pl.coeff_monomial(x ** 2), pl.coeff_monomial(x * y), pl.coeff_monomial(y ** 2))
+    return None
+
+def _split(p):
+    """List of (text, replacement factors) applied in order, ending in factors; None if no rule applies."""
+    ts = Add.make_args(p)
+    if len(ts) == 2:
+        pos = [t for t in ts if t.as_coeff_Mul()[0] > 0]; neg = [t for t in ts if t.as_coeff_Mul()[0] < 0]
+        if len(pos) == 1 and len(neg) == 1:
+            A, B = _sqroot(pos[0]), _sqroot(-neg[0])
+            if A is not None and B is not None:
+                return [("This is a difference of squares, $(" + tex(A) + ")^2 - (" + tex(B) + ")^2$, and $a^2 - b^2 = (a - b)(a + b)$", [A - B, A + B])]
+    q = _quad_form(p)
+    if q:
+        Z, W, a, b, c = q; ac = a * c
+        pair = next(((m, ac // m) for m in divisors(abs(ac)) for m in (m, -m) if ac % m == 0 and m + ac // m == b), None) if ac else None
+        if pair:
+            m, n = pair; zt = ("treating " + tm(Z) + " as one variable, ") if Z != Z.free_symbols.copy().pop() and W == 1 else ""
+            if a == 1:
+                f1, f2 = Z + m * W, Z + n * W
+                return [(zt.capitalize() + "find two numbers that multiply to " + str(c) + " and add to " + str(b) + ": " + str(m) + " and " + str(n), [f1, f2])]
+            out = [(zt.capitalize() + "multiply a·c = " + str(a) + "·" + str(c) + " = " + str(ac) + "; find two numbers that multiply to " + str(ac) + " and add to " + str(b) + ": " + str(m) + " and " + str(n) + ". Split the middle term",
+                    [Add(a * Z**2, m * Z * W, n * Z * W, c * W**2, evaluate=False)])]
+            g1, g2 = factor_terms(a * Z**2 + m * Z * W), factor_terms(n * Z * W + c * W**2)
+            out.append(("Group in pairs and factor each pair", [Add(Mul(g1.as_independent(Add)[0], g1.as_independent(Add)[1], evaluate=False) if isinstance(g1, Mul) else g1,
+                                                                  Mul(g2.as_independent(Add)[0], g2.as_independent(Add)[1], evaluate=False) if isinstance(g2, Mul) else g2, evaluate=False)]))
+            fin = Mul.make_args(factor(p))
+            out.append(("Factor out the common binomial", list(fin)))
+            return out
+    return None
+
+def factor_steps(e0):
+    st = Steps(); e0 = expand(e0)
+    st.add("Start with the expression", tex(e0), e0)
+    parts = [e0]
+    lead = Poly(e0, *sorted(e0.free_symbols, key=str)).LC() if e0.free_symbols else e0
+    if len(Add.make_args(e0)) > 1:
+        ft = factor_terms(e0)
+        if ft != e0 and isinstance(ft, Mul):
+            adds = [a for a in Mul.make_args(ft) if isinstance(a, Add)]; others = [a for a in Mul.make_args(ft) if not isinstance(a, Add)]
+            if len(adds) == 1 and others:
+                inner = adds[0]
+                ilead = Poly(inner, *sorted(inner.free_symbols, key=str)).LC()
+                if ilead < 0 and not (len(others) == 1 and others[0].is_number and others[0] < 0):
+                    others, inner = [-Mul(*others)] if others else [Integer(-1)], expand(-inner)
+                parts = [Mul(*others), inner]
+                st.add("Factor out the greatest common factor " + tm(Mul(*others)), _pt(parts), Mul(*parts))
+        elif lead < 0:
+            parts = [Integer(-1), expand(-e0)]
+            st.add("Factor out −1 so the leading coefficient is positive", _pt(parts), Mul(*parts))
+    guard = 0
+    while guard < 14:
+        guard += 1
+        idx = next((i for i, p in enumerate(parts) if not _is_final(p)), None)
+        if idx is None: break
+        p = parts[idx]
+        seq = _split(p) or [("Factor completely", list(Mul.make_args(factor(p))))]
+        for text, repl in seq:
+            parts = parts[:idx] + repl + parts[idx + 1:]
+            st.add(text, _pt(parts), Mul(*parts))
+            idx_end = idx + len(repl)
+        if any(not _is_final(x) and isinstance(x, Add) and len(Add.make_args(x)) > 1 and x not in Mul.make_args(factor(e0)) and False for x in parts): pass
+    final = factor(e0)
+    if tex(Mul(*parts, evaluate=False)) != tex(final) and _same(Mul(*parts), final) and Mul(*parts).has(Add) and final != Mul(*parts):
+        st.add("Write the answer in simplest form", tex(final), final)
+    return st, final
+
+# ---------------- expanding ----------------
+def expand_steps(a):
+    e = P(a, evaluate=False)
+    st = Steps(); st.add("Start with the expression", tex(e, order="none"), e)
+    def facs(t):
+        out = []
+        for f in Mul.make_args(t):
+            if isinstance(f, Pow) and f.exp.is_Integer and 2 <= f.exp <= 4 and isinstance(f.base, Add): out += [f.base] * int(f.exp)
+            else: out.append(f)
+        return out
+    def product(fs):
+        cur = fs[0]
+        for i, f in enumerate(fs[1:], 1):
+            rest = fs[i + 1:]
+            wrap = lambda x: (Mul(x, *rest, evaluate=False) if rest else x)
+            A, B = Add.make_args(cur), Add.make_args(f)
+            if len(A) == 1 and len(B) == 1: cur = expand(cur * f); continue
+            terms = [x * y for x in A for y in B]
+            st.add("Multiply every term of " + ("one bracket by every term of the other" if len(A) > 1 and len(B) > 1 else "the bracket"),
+                   tex(wrap(Add(*terms, evaluate=False)), order="none"), wrap(Add(*terms, evaluate=False)))
+            new = expand(cur * f)
+            if len(Add.make_args(new)) != len(terms): st.add("Combine like terms", tex(wrap(new)), wrap(new))
+            cur = new
+        return cur
+    if isinstance(e, Mul): res = product(facs(e))
+    elif isinstance(e, Pow) and isinstance(e.base, Add) and e.exp.is_Integer and 2 <= e.exp <= 4: res = product(facs(e))
+    elif isinstance(e, Add):
+        pieces = [product(facs(t)) if isinstance(t, (Mul, Pow)) else t for t in Add.make_args(e)]
+        res = expand(Add(*pieces))
+        if len(st.items) > 1: st.add("Add the results and combine like terms", tex(res), res)
+    else: return None, None
+    final = expand(P(a))
+    if len(st.items) < 2: return None, None
+    return st, final
+
+# ---------------- fractions ----------------
+def frac_steps(a):
+    e = P(a, evaluate=False)
+    if not isinstance(e, Add): return None, None
+    vals = []
+    for t in Add.make_args(e):
+        v = t.doit() if hasattr(t, "doit") else t
+        if not (v.is_Rational): return None, None
+        vals.append(v)
+    if not any(v.q != 1 for v in vals): return None, None
+    st = Steps(); st.add("Start with the sum", tex(Add(*vals, evaluate=False), order="none"), Add(*vals))
+    L = ilcm(*[v.q for v in vals])
+    st.add("The common denominator is the least common multiple of " + ", ".join(str(v.q) for v in vals) + ", which is " + str(L),
+           tex(Add(*vals, evaluate=False), order="none"), Add(*vals))
+    conv = [Rational(v.p * (L // v.q), L) for v in vals]
+    num = " + ".join("{}".format(v.p * (L // v.q)) for v in vals).replace("+ -", "- ")
+    st.add("Rewrite each fraction with denominator " + str(L), "".join(("-" if i and v.p < 0 else "+" if i else "-" if v.p < 0 else "") + r"\frac{%d}{%d}" % (abs(v.p * (L // v.q)), L) for i, v in enumerate(vals)), Add(*vals))
+    tot = sum(v.p * (L // v.q) for v in vals)
+    st.add("Add the numerators", r"\frac{%s}{%d}" % (num, L) + " = " + r"\frac{%d}{%d}" % (tot, L), Add(*vals))
+    res = Add(*vals)
+    if sp.gcd(tot, L) != 1:
+        st.add("Simplify by dividing top and bottom by " + str(sp.gcd(tot, L)), tex(res), res)
+    return st, res
+
+# ---------------- equations ----------------
+def solve_steps(a, var):
+    if "=" not in a: l, r = P(a), Integer(0)
+    else: ls, rs = a.split("=", 1); l, r = P(ls), P(rs)
+    syms = sorted((l - r).free_symbols, key=str)
+    if not syms: return None, None
+    x = Symbol(var, real=True) if var else syms[0]
+    e = expand(l - r)
+    pl = Poly(e, x); st = Steps()
+    st.add("Start with the equation", tex(Eq(l, r, evaluate=False)))
+    sols = solve(e, x)
+    final = Tuple(*[Eq(x, s) for s in sols])
+    if pl.degree() == 1:
+        A, B = pl.all_coeffs(); L2 = expand(l - (l - r).subs(x, 0) * 0)
+        st.add("Move the " + tm(x) + " terms to the left and the numbers to the right", tex(Eq(A * x, -B, evaluate=False)))
+        if A != 1: st.add("Divide both sides by " + tm(A), tex(Eq(x, -B / A, evaluate=False)))
+        return st, final
+    if pl.degree() == 2:
+        A, B, C = pl.all_coeffs()
+        if r != 0 or l != e: st.add("Move everything to the left so the right side is 0", tex(Eq(e, 0, evaluate=False)))
+        disc = B**2 - 4 * A * C
+        if disc >= 0 and sp.sqrt(disc).is_Rational:
+            fs, fin = factor_steps(e)
+            for it in fs.items[1:]: st.add(it["text"], it["tex"])
+            facs = []
+            for f in Mul.make_args(fin):
+                f = f.base if isinstance(f, Pow) else f
+                if f.has(x) and f not in facs: facs.append(f)
+            st.add("A product is zero when one of the factors is zero", ", \\quad ".join(tex(Eq(f, 0, evaluate=False)) for f in facs))
+            st.add("Solve each factor", ", \\quad ".join(tex(Eq(x, s, evaluate=False)) for s in sols))
+            return st, final
+        st.add("This is a quadratic equation with $a = " + tex(A) + "$, $b = " + tex(B) + "$, $c = " + tex(C) + "$", r"x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}")
+        st.add("Discriminant: $b^2 - 4ac$", tex(Eq(Symbol("Δ"), disc, evaluate=False)))
+        if disc < 0:
+            st.add("The discriminant is negative, so there are no real solutions", r"\text{No real solutions}")
+            return st, final
+        st.add("Substitute into the formula", r"x = \frac{%s \pm \sqrt{%s}}{%s}" % (tex(-B), tex(disc), tex(2 * A)))
+        st.add("Simplify", ", \\quad ".join(tex(Eq(x, s, evaluate=False)) for s in sols))
+        return st, final
+    return None, None
+
+# ---------------- derivatives ----------------
+def _D(g, x): return Derivative(g, x, evaluate=False) if g != x else Integer(1)
+def _drule(g, x):
+    if not g.has(x): return "The derivative of a constant is 0", Integer(0)
+    if g == x: return "The derivative of x is 1", Integer(1)
+    if isinstance(g, Add): return "Sum rule: differentiate each term", Add(*[_D(t, x) for t in g.args])
+    if isinstance(g, Mul):
+        c, rest = g.as_independent(x)
+        if c != 1: return "Constant multiple rule: pull out " + tm(c), c * _D(rest, x)
+        num = [f for f in g.args if not (isinstance(f, Pow) and f.exp.is_negative)]
+        den = [f for f in g.args if isinstance(f, Pow) and f.exp.is_negative]
+        if len(den) == 1 and den[0].exp == -1 and num:
+            u, v = Mul(*num), den[0].base
+            return "Quotient rule, $(u/v)' = (u'v - uv')/v^2$, with u = " + tm(u) + " and v = " + tm(v), (_D(u, x) * v - u * _D(v, x)) / v**2
+        u, v = g.args[0], Mul(*g.args[1:])
+        return "Product rule, $(uv)' = u'v + uv'$, with u = " + tm(u) + " and v = " + tm(v), _D(u, x) * v + u * _D(v, x)
+    if isinstance(g, Pow):
+        b, n = g.args
+        if not n.has(x):
+            if b == x: return "Power rule: $\\frac{d}{dx} x^n = n x^{n-1}$", n * x**(n - 1)
+            return "Power rule with the chain rule, $(u^n)' = n u^{n-1} u'$, with u = " + tm(b), n * b**(n - 1) * _D(b, x)
+        if not b.has(x):
+            return "Exponential rule, $(a^u)' = a^u \\ln a \\cdot u'$, with u = " + tm(n), g * sp.log(b) * _D(n, x)
+        return "Rewrite using e and logarithms: $u^v = e^{v \\ln u}$", sp.exp(n * sp.log(b))
+    f = g.func; h = g.args[0]
+    table = {sp.exp: ("Exponential rule: $(e^u)' = e^u \\cdot u'$", g), sp.sin: ("Chain rule: $(\\sin u)' = \\cos u \\cdot u'$", sp.cos(h)), sp.cos: ("Chain rule: $(\\cos u)' = -\\sin u \\cdot u'$", -sp.sin(h)),
+             sp.tan: ("Chain rule: $(\\tan u)' = \\sec^2 u \\cdot u'$", 1 / sp.cos(h)**2), sp.log: ("Chain rule: $(\\ln u)' = u'/u$", 1 / h), sp.atan: ("Chain rule: (arctan u)′ = u′/(1+u²)", 1 / (1 + h**2)),
+             sp.asin: ("Chain rule: (arcsin u)′ = u′/√(1−u²)", 1 / sp.sqrt(1 - h**2)), sp.acos: ("Chain rule: (arccos u)′ = −u′/√(1−u²)", -1 / sp.sqrt(1 - h**2))}
+    if f in table:
+        t, d = table[f]; return t + " with u = " + tm(h), d * _D(h, x)
+    return None, None
+
+def diff_steps(a, var):
+    e = P(a); x = Symbol(var or "x", real=True)
+    st = Steps(); cur = Derivative(e, x, evaluate=False)
+    st.add("Differentiate", tex(cur), cur)
+    for _ in range(30):
+        ds = [d for d in cur.atoms(Derivative)]
+        if not ds: break
+        d = ds[0]; text, rep = _drule(d.expr, x)
+        if text is None: return None, None
+        cur = cur.xreplace({d: rep}); st.add(text, tex(cur), cur)
+    final = diff(e, x)
+    if not _same(cur, final): return None, None
+    if cur != simplify(cur): st.add("Simplify", tex(simplify(cur)), simplify(cur))
+    return st, final
+
+# ---------------- integrals ----------------
+def _I(f, x): return r"\int " + tex(f) + r"\,d" + str(x).lstrip("_")
+def _walk(rule, st, x):
+    n = type(rule).__name__; f = getattr(rule, "integrand", None); v = getattr(rule, "variable", x)
+    res = lambda: integrate(f, v)
+    if n == "ConstantRule": st.add("The integral of a constant $c$ is $cx$", _I(f, v) + " = " + tex(res()))
+    elif n == "PowerRule": st.add("Power rule: $\\int x^n\\,dx = \\frac{x^{n+1}}{n+1}$", _I(f, v) + " = " + tex(res()))
+    elif n == "AddRule":
+        st.add("Integrate each term separately", _I(f, v)); [ _walk(s, st, v) for s in rule.substeps ]
+    elif n == "ConstantTimesRule":
+        st.add("Pull the constant " + tm(rule.constant) + " out of the integral", tex(rule.constant) + r"\cdot " + _I(rule.other, v)); _walk(rule.substep, st, v)
+    elif n == "URule":
+        st.add("Substitute u = " + tm(rule.u_func), _I(f, v) + r"\ \to\ " + _I(rule.substep.integrand, rule.u_var)); _walk(rule.substep, st, rule.u_var)
+        st.add("Replace u with " + tm(rule.u_func), tex(res()))
+    elif n == "PartsRule":
+        st.add("Integration by parts, $\\int u\\,dv = uv - \\int v\\,du$, with u = " + tm(rule.u) + " and dv = " + tm(rule.dv) + "$\\,d" + str(v) + "$", _I(f, v))
+        _walk(rule.v_step, st, v) if rule.v_step is not None else None
+        _walk(rule.second_step, st, v) if rule.second_step is not None else None
+    elif n == "RewriteRule":
+        st.add("Rewrite the integrand", _I(f, v) + " = " + _I(rule.rewritten, v)); _walk(rule.substep, st, v)
+    elif n == "AlternativeRule": _walk(rule.alternatives[0], st, x)
+    elif n == "CyclicPartsRule": st.add("Integrate by parts repeatedly; the original integral reappears, so solve for it", _I(f, v) + " = " + tex(res()))
+    else: st.add("Use the standard integral", _I(f, v) + " = " + tex(res()))
+
+def int_steps(a, var):
+    e = P(a); x = Symbol(var or "x", real=True)
+    st = Steps(); st.add("Integrate", _I(e, x) + " + C")
+    _walk(integral_steps(e, x), st, x)
+    r = integrate(e, x)
+    if r.has(sp.Integral) or not _same(diff(r, x), e): return None, None
+    st.add("Add the constant of integration", tex(r) + " + C")
+    return st, r
+
+# ---------------- entry ----------------
+def steps(op, a, b="", c="", angle="rad"):
+    try:
+        if op == "factor": st, final = factor_steps(P(a))
+        elif op == "expand": st, final = expand_steps(a)
+        elif op == "eval": st, final = frac_steps(a)
+        elif op == "solve" or (op in ("eval", "simplify") and "=" in a): st, final = solve_steps(a, b)
+        elif op == "diff": st, final = diff_steps(a, b)
+        elif op == "int": st, final = int_steps(a, b)
+        else: return _fail("Steps are not available for this operation yet.")
+        if st is None: return _fail("Steps are not available for this one yet.")
+        start = P(a) if "=" not in a and op not in ("diff", "int", "solve") else None
+        if start is not None and not _verify(st, start): return _fail("The steps did not check out, so they are not shown.")
+        return _out(st)
+    except Exception as ex:
+        return _fail("Steps are not available for this one yet (" + type(ex).__name__ + ").")

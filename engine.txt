@@ -1,0 +1,152 @@
+# SymPy engine for Algebra Desk. Runs in Pyodide (browser worker) and in a pinned test venv.
+import json, re
+import sympy as sp
+from sympy import (Mul, Pow, Add, Rational, Float, Symbol, Tuple, Eq, E, pi, oo, S, expand, factor, factor_list,
+                   simplify, diff, integrate, limit, solve, latex)
+from sympy.parsing.sympy_parser import (parse_expr, standard_transformations,
+    implicit_multiplication_application, convert_xor)
+
+T = standard_transformations + (implicit_multiplication_application, convert_xor)
+_DEC = re.compile(r'(?<![\w.])(\d+\.\d*|\.\d+)')
+_SCI = re.compile(r'(?<![\w.])(\d+\.?\d*|\.\d+)[eE]([+-]?\d+)(?![\d.])')
+
+_TRIG = ("sin", "cos", "tan", "sec", "csc", "cot")
+
+def _ns(deg):
+    """Names the parser knows. log is base 10 (IB), ln is natural, e is Euler's number."""
+    d = {"e": E, "ln": sp.log, "lg": lambda x: sp.log(x, 10), "log10": lambda x: sp.log(x, 10),
+         "log": lambda x, b=10: sp.log(x, b)}
+    if deg:
+        d.update(sin=lambda x: sp.sin(x * pi / 180), cos=lambda x: sp.cos(x * pi / 180), tan=lambda x: sp.tan(x * pi / 180),
+                 sec=lambda x: sp.sec(x * pi / 180), csc=lambda x: sp.csc(x * pi / 180), cot=lambda x: sp.cot(x * pi / 180),
+                 asin=lambda x: sp.asin(x) * 180 / pi, acos=lambda x: sp.acos(x) * 180 / pi, atan=lambda x: sp.atan(x) * 180 / pi)
+    return d
+
+def _norm(s, deg=False):
+    s = s.replace("×", "*").replace("÷", "/").replace("−", "-").replace("π", "pi").replace("√", "sqrt")
+    s = s.replace("°", "" if deg else "*pi/180")                # in degree mode the trig functions already expect degrees
+    s = _SCI.sub(r'(\1*10**(\2))', s)                         # 6.02e23 -> (6.02*10**(23))
+    s = re.sub(r'\bof\b', '*', s)                              # 20% of 50
+    s = re.sub(r'(\d+(?:\.\d+)?)\s*%', r'(\1/100)', s)     # 20% -> (20/100)
+    if "%" in s: raise ValueError("Put a number right before %")
+    return s
+
+def P(s, evaluate=True, exact=True, deg=False):
+    s = _norm(s, deg)
+    if exact:  # decimals become exact fractions so 0.25 + 1/4 mixes cleanly
+        s = _DEC.sub(lambda m: 'Rational("%s")' % m.group(1), s)
+    e = parse_expr(s, transformations=T, evaluate=evaluate, local_dict=_ns(deg))
+    if evaluate:  # letters are real numbers, so |x|, sqrt(x^2) and ln|x| behave as in school
+        e = e.xreplace({v: Symbol(v.name, real=True) for v in e.free_symbols if isinstance(v, Symbol)})
+    return e
+
+def PE(s, deg=False):
+    """Expression, or lhs - rhs when the text is an equation."""
+    if "=" in s: l, r = s.split("=", 1); return P(l, deg=deg) - P(r, deg=deg), True
+    return P(s, deg=deg), False
+
+def D(e, digits=10):
+    """Decimal view: every numeric piece becomes a float; symbols and exponents on symbols stay exact."""
+    e = sp.sympify(e)
+    if e.is_number:
+        if e.is_Integer: return e
+        v = e.evalf(digits + 5)
+        return Float(('%.' + str(digits) + 'g') % float(v)) if v.is_real else v.evalf(digits)
+    if not e.args: return e
+    if e.is_Pow and e.exp.is_number and e.base.free_symbols: return Pow(D(e.base, digits), e.exp)
+    try: return e.func(*[D(a, digits) for a in e.args])
+    except Exception: return e
+
+def tex(r, order=None): return latex(r, mul_symbol=None, inv_trig_style="power", ln_notation=True, order=order)
+
+def pack(kind, badge, r, note=""):
+    try: dtex = tex(D(r))
+    except Exception: dtex = tex(r)
+    return json.dumps({"kind": kind, "badge": badge, "note": note, "exact": tex(r), "dec": dtex, "text": str(r).replace("**", "^")})
+
+def pack_text(kind, badge, msg, note=""):
+    t = r"\text{" + msg + "}"
+    return json.dumps({"kind": kind, "badge": badge, "note": note, "exact": t, "dec": t, "text": msg})
+
+def written_factors(e):
+    out = []
+    for a in Mul.make_args(e):
+        b = a.as_base_exp()[0] if isinstance(a, Pow) else a
+        if isinstance(b, Mul): out += written_factors(b)
+        elif not b.is_number: out.append(b)
+    return out
+
+def irreducible(b):
+    c, fl = factor_list(b)
+    if len(fl) != 1 or fl[0][1] != 1: return False
+    return not (isinstance(b, Add) and c.is_Integer and abs(c) > 1)
+
+def check(problem, answer, deg=False):
+    p, k = P(problem, deg=deg), P(answer, deg=deg)
+    diff_ = expand(p - k)
+    if diff_ != 0 and simplify(p - k) != 0:
+        return pack("bad", "Wrong", factor(p), "Does not match the problem. A correct factoring is:")
+    if not all(irreducible(b) for b in written_factors(P(answer, evaluate=False))):
+        return pack("warn", "Right, not fully factored", factor(p), "Fully factored:")
+    return pack("ok", "Correct", factor(p), "Fully factored:")
+
+def _limit(e, x, c):
+    c = c.strip() or "0"
+    side = None
+    if len(c) > 1 and c[-1] in "+-" and not c[-2] in "+-*/^(": side, c = c[-1], c[:-1]
+    pt = P(c)
+    if side: return pack("", "", limit(e, x, pt, side))
+    if pt in (oo, -oo): return pack("", "", limit(e, x, pt))
+    L, R = limit(e, x, pt, "-"), limit(e, x, pt, "+")
+    if L == R: return pack("", "", L)
+    return pack_text("warn", "Limit does not exist", "Does not exist",
+                    "From the left it tends to " + str(L).replace("**", "^") + ", from the right to " + str(R).replace("**", "^") + ".")
+
+def _run(op, a, b, c, angle):
+    deg = angle == "deg"
+    if op == "check": return check(a, b, deg)
+    if op in ("eval", "simplify", "factor", "expand", "solve"):
+        e, is_eq = PE(a, deg)
+        note = "Angles in degrees." if deg and any(f in a for f in _TRIG) else ""
+        if is_eq or op == "solve":
+            b = b.strip()
+            if b in ("e", "pi"): raise ValueError("The variable can't be " + b)
+            if e == 0: return pack_text("ok", "Always true", "True for every value")
+            if not e.free_symbols: return pack_text("bad", "Never true", "No solution")
+            x = Symbol(b, real=True) if b else (sorted(e.free_symbols, key=str) or [Symbol("x", real=True)])[0]
+            sols = solve(e, x)
+            return pack("", "", Tuple(*[Eq(x, s) for s in sols]) if sols else S.EmptySet, note or ("" if sols else "No real solutions."))
+        r = {"eval": lambda v: simplify(v) if v.free_symbols else v, "simplify": simplify, "factor": factor, "expand": expand}[op](e)
+        return pack("", "", r, note)
+    e, _ = PE(a)                       # calculus is always in radians
+    b = b.strip()
+    if b in ("e", "pi"): raise ValueError("The variable can't be " + b)
+    x = Symbol(b or "x", real=True)
+    if op == "diff": return pack("", "", diff(e, x))
+    if op == "int":
+        r = integrate(e, x)  # IB marks ln|u| + C, so wrap logs whose argument can be negative
+        r = r.replace(lambda t: t.func == sp.log and t.args[0].is_positive is not True and len(t.args) == 1,
+                      lambda t: sp.log(sp.Abs(t.args[0])))
+        note = "No elementary antiderivative found." if r.has(sp.Integral) else ""
+        return pack("", "", r + Symbol("C"), note)
+    if op == "defint":
+        lo, hi = [P(s.strip()) for s in c.split(",")]
+        return pack("", "", integrate(e, (x, lo, hi)))
+    if op == "limit": return _limit(e, x, c)
+    raise ValueError("unknown operation " + op)
+
+def run(op, a, b="", c="", angle="rad"):
+    try: return _run(op, a, b, c, angle)
+    except (SyntaxError, ValueError, TypeError, IndexError, AttributeError) as ex:
+        return pack_text("bad", "Could not read that", "Check brackets and operators", type(ex).__name__ + ": " + str(ex)[:120])
+    except NotImplementedError:
+        return pack_text("bad", "No exact method", "Not solved", "SymPy has no exact method for this one.")
+    except Exception as ex:
+        return pack_text("bad", "Could not compute", "Not solved", type(ex).__name__)
+
+def preview(s):
+    """LaTeX of the input as typed (not evaluated), decimals kept."""
+    if "=" in s:
+        l, r = s.split("=", 1)
+        return preview(l) + " = " + preview(r)
+    return tex(P(s, evaluate=False, exact=False), order="none").replace("1 \\cdot \\frac", "\\frac")
